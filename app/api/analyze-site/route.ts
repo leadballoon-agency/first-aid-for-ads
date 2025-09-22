@@ -583,7 +583,7 @@ function extractContactInfo(html: string, domain: string, enhancedData: any = {}
   const foundPhones = new Set<string>()
 
   // Method 1: Look for tel: links (most reliable)
-  const telLinks = html.matchAll(/href=["']?tel:([^"'\s>]+)["']?/gi)
+  const telLinks = Array.from(html.matchAll(/href=["']?tel:([^"'\s>]+)["']?/gi))
   for (const match of telLinks) {
     const phone = match[1].trim()
     const digits = phone.replace(/\D/g, '')
@@ -605,7 +605,7 @@ function extractContactInfo(html: string, domain: string, enhancedData: any = {}
   ]
   
   for (const pattern of phonePatterns) {
-    const matches = html.matchAll(pattern)
+    const matches = Array.from(html.matchAll(pattern))
     for (const match of matches) {
       let phone = match[0].trim()
       // Clean edges
@@ -1099,7 +1099,7 @@ function extractBusinessInfo(html: string, domain: string) {
   
   const valueProps = new Set<string>()
   for (const pattern of valuePatterns) {
-    const matches = html.matchAll(pattern)
+    const matches = Array.from(html.matchAll(pattern))
     for (const match of matches) {
       const prop = match[1].trim()
       if (prop.length > 10 && prop.length < 60 && !prop.includes('cookie')) {

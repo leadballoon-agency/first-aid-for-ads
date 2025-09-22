@@ -1009,7 +1009,7 @@ function extractBusinessInfo(html: string, domain: string) {
 
   if (bestType) {
     info.businessType = bestType
-    info.industry = businessTypeIndicators[bestType].description
+    info.industry = businessTypeIndicators[bestType as keyof typeof businessTypeIndicators].description
     info.confidence += Math.min(30, bestScore * 2) // Add confidence based on score
     info.signals.push(`Detected ${bestMatches.length} ${bestType} keywords: ${bestMatches.join(', ')}`)
   }
@@ -1034,7 +1034,7 @@ function extractBusinessInfo(html: string, domain: string) {
   } else {
     // Last resort - try headlines
     const headlines = html.match(/<h[12][^>]*>([^<]+)<\/h[12]>/gi) || []
-    if (headlines.length > 0) {
+    if (headlines.length > 0 && headlines[0]) {
       const cleanHeadline = headlines[0]
         .replace(/<[^>]+>/g, '')
         .trim()

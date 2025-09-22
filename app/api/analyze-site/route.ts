@@ -986,7 +986,7 @@ function extractBusinessInfo(html: string, domain: string) {
   for (const [type, indicator] of Object.entries(businessTypeIndicators)) {
     const matches = combinedText.match(indicator.pattern) || []
     if (matches.length > 0) {
-      const uniqueMatches = [...new Set(matches.map(m => m.toLowerCase()))]
+      const uniqueMatches = Array.from(new Set(matches.map(m => m.toLowerCase())))
       typeScores[type] = {
         score: uniqueMatches.length * indicator.weight,
         matches: uniqueMatches.slice(0, 3) // Keep top 3 matches for explanation

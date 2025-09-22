@@ -1,0 +1,3271 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import * as Progress from '@radix-ui/react-progress'
+import toast from 'react-hot-toast'
+import Confetti from 'react-confetti'
+import Link from 'next/link'
+import Image from 'next/image'
+import Navigation from '@/components/Navigation'
+import ReviewCarousel from '@/components/ReviewCarousel'
+import BookingModal from '@/components/BookingModal'
+
+// Types
+type AssessmentMode = 'guided' | 'expert'
+type AssessmentStep = 'intro' | 'business' | 'infrastructure' | 'pixel' | 'conversions' | 'campaigns' | 'results'
+type BusinessQuestion = 'type' | 'price' | 'market' | 'model' | 'complete'
+
+interface AssessmentData {
+  mode: AssessmentMode
+  // Business Profile
+  businessType: 'ecommerce' | 'service' | 'local' | 'saas' | 'info' | null
+  industry: string | null
+  pricePoint: 'low' | 'medium' | 'high' | 'enterprise' | null // <$50, $50-500, $500-5000, >$5000
+  targetMarket: 'local' | 'national' | 'global' | null
+  salesModel: 'direct' | 'lead-gen' | 'both' | null
+  avgOrderValue: number | null
+  // Infrastructure
+  skippedInfrastructure: boolean
+  businessManager: boolean | null
+  businessInfoConnected: boolean | null
+  pixelInstalled: boolean | null
+  pixelFiring: boolean | null
+  hasLandingPage: boolean | null
+  conversionsPerWeek: number | null
+  optimizingFor: string | null
+  monthlyBudget: number | null
+  campaignCount: number | null
+  audienceOverlap: boolean | null
+  scores: {
+    infrastructure: number
+    pixel: number
+    optimization: number
+    overall: number
+  }
+  issues: Issue[]
+  recommendations: string[]
+}
+
+interface Issue {
+  id: string
+  title: string
+  severity: 'critical' | 'warning' | 'info'
+  impact: string
+  quickFix: boolean
+  estimatedSavings?: number
+}
+
+const HomePage = () => {
+  const [assessmentStarted, setAssessmentStarted] = useState(false)
+  const [currentStep, setCurrentStep] = useState<AssessmentStep>('intro')
+  const [assessmentData, setAssessmentData] = useState<AssessmentData>({
+    mode: 'guided',
+    // Business Profile
+    businessType: null,
+    industry: null,
+    pricePoint: null,
+    targetMarket: null,
+    salesModel: null,
+    avgOrderValue: null,
+    // Infrastructure
+    skippedInfrastructure: false,
+    businessManager: null,
+    businessInfoConnected: null,
+    pixelInstalled: null,
+    pixelFiring: null,
+    hasLandingPage: null,
+    conversionsPerWeek: null,
+    optimizingFor: null,
+    monthlyBudget: null,
+    campaignCount: null,
+    audienceOverlap: null,
+    scores: {
+      infrastructure: 100,
+      pixel: 100,
+      optimization: 100,
+      overall: 100
+    },
+    issues: [],
+    recommendations: []
+  })
+  const [showConfetti, setShowConfetti] = useState(false)
+  const [animatingScore, setAnimatingScore] = useState(false)
+  const [pulseAreas, setPulseAreas] = useState<string[]>([])
+  const [businessQuestion, setBusinessQuestion] = useState<BusinessQuestion>('type')
+  const [userName, setUserName] = useState('')
+  const [tempName, setTempName] = useState('')
+  const [showBookingModal, setShowBookingModal] = useState(false)
+  const [websiteUrl, setWebsiteUrl] = useState('')
+  const [tempUrl, setTempUrl] = useState('')
+  const [urlCaptured, setUrlCaptured] = useState(false)
+  const [siteAnalysis, setSiteAnalysis] = useState<any>(null)
+  const [analyzing, setAnalyzing] = useState(false)
+
+  // Note: Assessment now starts from the skill check question
+  // Mode is determined by their answer, not a direct choice
+
+  // Skip infrastructure check
+  const skipInfrastructure = () => {
+    setAssessmentData(prev => ({ 
+      ...prev, 
+      skippedInfrastructure: true,
+      businessManager: true,
+      businessInfoConnected: true
+    }))
+    setCurrentStep('pixel')
+    toast('Skipping infrastructure check - assuming all is well! 🤞')
+  }
+
+  // Handle URL submission
+  const handleUrlSubmit = async () => {
+    if (!tempUrl.trim()) return
+    
+    setAnalyzing(true)
+    const cleanUrl = tempUrl.trim().replace(/\/$/, '') // Remove trailing slash
+    setWebsiteUrl(cleanUrl)
+    
+    try {
+      // Call real API to analyze the site
+      const response = await fetch('/api/analyze-site', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: cleanUrl })
+      })
+      
+      const analysis = await response.json()
+      
+      // Handle fallback for errors
+      if (analysis.fallback) {
+        // Use mock data if real analysis fails
+        const domain = cleanUrl.replace(/^https?:\/\//, '').split('/')[0]
+        const mockAnalysis = {
+          url: cleanUrl,
+          domain: domain,
+          pixelFound: false,
+          pixelIds: [],
+          issues: ['analysis_failed'],
+          message: 'Could not fully analyze your site, but let\'s continue!',
+          loadTime: '2.5'
+        }
+        setSiteAnalysis(mockAnalysis)
+      } else {
+        setSiteAnalysis(analysis)
+      }
+      
+      // Show toast notifications but DON'T auto-continue - let user review and click continue
+      if (!analysis.pixelFound) {
+        toast.error('No pixel found - we\'ll help you fix that!', { duration: 4000 })
+      } else if (analysis.multiplePixels) {
+        toast('Multiple pixels detected - this could cause issues', { icon: '⚠️', duration: 4000 })
+      } else if (analysis.pixelFound) {
+        toast.success('Pixel detected! Let\'s check the rest of your setup', { duration: 3000 })
+      }
+      
+      // User must manually click continue after reviewing the analysis
+      setAnalyzing(false)
+    } catch (error) {
+      toast.error('Could not analyze your site, but let\'s continue!')
+      setUrlCaptured(true)
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+  
+  // Track events for pixel seasoning
+  const trackEvent = (eventType: string, data?: any) => {
+    console.log('Tracking event:', eventType, data)
+    // In production, this would send to your analytics/database
+    fetch('/api/track-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventType, data, timestamp: new Date().toISOString() })
+    }).catch(console.error)
+  }
+
+  // Calculate scores based on answers
+  const calculateScores = () => {
+    let infrastructureScore = 100
+    let pixelScore = 100
+    let optimizationScore = 100
+    const issues: Issue[] = []
+
+    // Infrastructure scoring
+    if (!assessmentData.businessManager) {
+      infrastructureScore -= 40
+      issues.push({
+        id: 'no-bm',
+        title: 'No Business Manager',
+        severity: 'critical',
+        impact: 'Cannot run ads properly',
+        quickFix: false,
+        estimatedSavings: 500
+      })
+    }
+    
+    if (!assessmentData.businessInfoConnected && !assessmentData.skippedInfrastructure) {
+      infrastructureScore -= 30
+      issues.push({
+        id: 'business-info',
+        title: 'Business Info Disconnected',
+        severity: 'critical',
+        impact: 'Limited ad features',
+        quickFix: true,
+        estimatedSavings: 300
+      })
+    }
+
+    // Pixel scoring
+    if (!assessmentData.pixelInstalled) {
+      pixelScore = 0
+      issues.push({
+        id: 'no-pixel',
+        title: 'No Pixel Installed',
+        severity: 'critical',
+        impact: 'Cannot track conversions',
+        quickFix: false,
+        estimatedSavings: 1000
+      })
+    } else if (!assessmentData.pixelFiring) {
+      pixelScore -= 50
+      issues.push({
+        id: 'pixel-dead',
+        title: 'Pixel Not Firing',
+        severity: 'critical',
+        impact: 'Tracking broken',
+        quickFix: true,
+        estimatedSavings: 800
+      })
+    }
+
+    // Optimization scoring
+    if (assessmentData.conversionsPerWeek && assessmentData.conversionsPerWeek < 50) {
+      optimizationScore -= 40
+      issues.push({
+        id: 'learning-limited',
+        title: 'Stuck in Learning Limited',
+        severity: 'warning',
+        impact: `Only ${assessmentData.conversionsPerWeek} conversions/week`,
+        quickFix: false,
+        estimatedSavings: 600
+      })
+    }
+
+    if (assessmentData.audienceOverlap) {
+      optimizationScore -= 25
+      issues.push({
+        id: 'audience-overlap',
+        title: 'Audiences Competing',
+        severity: 'warning',
+        impact: 'Increased costs',
+        quickFix: true,
+        estimatedSavings: 400
+      })
+    }
+
+    const overallScore = Math.round(
+      (infrastructureScore + pixelScore + optimizationScore) / 3
+    )
+
+    setAssessmentData(prev => ({
+      ...prev,
+      scores: {
+        infrastructure: infrastructureScore,
+        pixel: pixelScore,
+        optimization: optimizationScore,
+        overall: overallScore
+      },
+      issues
+    }))
+
+    return overallScore
+  }
+
+  // Complete assessment
+  const completeAssessment = () => {
+    const score = calculateScores()
+    setCurrentStep('results')
+    setAnimatingScore(true)
+    
+    // Mark assessment as completed in localStorage
+    localStorage.setItem('assessmentCompleted', JSON.stringify({
+      completedAt: new Date().toISOString(),
+      score: score,
+      issues: assessmentData.issues
+    }))
+    
+    if (score > 80) {
+      setShowConfetti(true)
+      setTimeout(() => setShowConfetti(false), 5000)
+    }
+    
+    trackEvent('CompleteAssessment', { 
+      score, 
+      issues: assessmentData.issues.length,
+      mode: assessmentData.mode 
+    })
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-dark-400 via-dark-200 to-dark-300">
+      {showConfetti && <Confetti />}
+      
+      {/* Navigation */}
+      <Navigation />
+
+      <main>
+        <AnimatePresence mode="wait">
+          {!assessmentStarted ? (
+            // Landing Hero - Full Viewport
+            <motion.section 
+              key="hero"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.5 }}
+              className="min-h-screen flex items-center justify-center relative">
+            <div className="container mx-auto px-4">
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center max-w-4xl mx-auto"
+              >
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.2 }}
+                className="mb-8"
+              >
+                <img 
+                  src="/images/logo/Light background logo.png" 
+                  alt="First Aid For Ads" 
+                  className="h-16 md:h-20 w-auto mx-auto mb-4"
+                />
+                <div className="inline-block px-4 py-2 bg-accent/10 border border-accent/30 rounded-full text-xs md:text-sm backdrop-blur-sm">
+                  🚨 Campaign Infrastructure Experts
+                </div>
+              </motion.div>
+              
+              <motion.h1 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold font-playfair mb-6 leading-tight"
+              >
+                The 3 <span className="gradient-text">Hidden Campaign Killers</span> Destroying Your Facebook Ads
+              </motion.h1>
+              
+              <motion.p 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+                className="text-lg md:text-xl text-gray-300 mb-12 max-w-2xl mx-auto"
+              >
+                Get your <span className="text-accent font-semibold">FREE</span> personalized diagnostic report in 2 minutes and discover exactly what's bleeding your ad spend
+              </motion.p>
+
+              {/* Get Started - Personal Touch */}
+              <motion.div 
+                id="assessment-start"
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+                className="glass-card p-6 md:p-8 max-w-2xl mx-auto backdrop-blur-md"
+              >
+                {!userName ? (
+                  <>
+                    <h2 className="text-xl md:text-2xl font-bold mb-4">
+                      👋 Let's Get Started
+                    </h2>
+                    <p className="text-sm text-gray-400 mb-6">
+                      First, what should I call you?
+                    </p>
+                    <input
+                      type="text"
+                      placeholder="Enter your first name..."
+                      value={tempName}
+                      onChange={(e) => setTempName(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter' && tempName.trim()) {
+                          const formattedName = tempName.trim()
+                            .split(' ')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                            .join(' ')
+                          setUserName(formattedName)
+                          toast.success(`Nice to meet you, ${formattedName}! 👋`)
+                        }
+                      }}
+                      className="w-full px-4 py-3 bg-dark-400/50 border border-gray-600 rounded-lg focus:border-accent focus:outline-none text-lg mb-6"
+                      autoFocus
+                    />
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => {
+                        if (tempName.trim()) {
+                          const formattedName = tempName.trim()
+                            .split(' ')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                            .join(' ')
+                          setUserName(formattedName)
+                          toast.success(`Nice to meet you, ${formattedName}! 👋`)
+                        }
+                      }}
+                      disabled={!tempName.trim()}
+                      className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Continue →
+                    </motion.button>
+                    <p className="text-xs text-gray-500 mt-6 text-center">
+                      Takes 2-3 minutes • No email required • 100% free
+                    </p>
+                  </>
+                ) : !urlCaptured ? (
+                  // URL Capture Step - Elegant Design
+                  <>
+                    <div className="text-center mb-8">
+                      <h2 className="text-2xl md:text-3xl font-bold font-playfair mb-3">
+                        Excellent, {userName}!
+                      </h2>
+                      <p className="text-gray-300">
+                        Let's run a quick diagnostic on your website
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-6">
+                      {/* URL Input Section */}
+                      <div className="relative">
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                          </svg>
+                        </div>
+                        <input
+                          type="url"
+                          placeholder="Enter your website URL"
+                          value={tempUrl}
+                          onChange={(e) => setTempUrl(e.target.value)}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter' && tempUrl.trim()) {
+                              handleUrlSubmit()
+                            }
+                          }}
+                          className="w-full pl-12 pr-4 py-4 bg-dark-400/30 border border-gray-700 rounded-xl focus:border-accent focus:bg-dark-400/50 focus:outline-none text-lg transition-all"
+                          autoFocus
+                        />
+                      </div>
+                      
+                      {/* Analyzing State */}
+                      {analyzing && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          className="overflow-hidden"
+                        >
+                          <div className="bg-gradient-to-r from-accent/10 via-accent/5 to-accent/10 rounded-xl p-6">
+                            <div className="flex flex-col items-center space-y-3">
+                              <div className="relative">
+                                <div className="w-16 h-16 border-4 border-accent/20 rounded-full"></div>
+                                <div className="absolute top-0 left-0 w-16 h-16 border-4 border-accent border-t-transparent rounded-full animate-spin"></div>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-accent font-semibold">Analyzing your website...</p>
+                                <p className="text-xs text-gray-400 mt-1">Running pixel detection, checking load speed, finding contact info</p>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                      
+                      {siteAnalysis && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ type: "spring", stiffness: 100 }}
+                          className="space-y-4"
+                        >
+                          {/* Elegant Website Analysis Card */}
+                          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-dark-400/50 via-dark-300/30 to-dark-400/50 backdrop-blur-xl border border-white/10">
+                            {/* Animated Background Gradient */}
+                            <div className="absolute inset-0 bg-gradient-to-br from-accent/5 via-transparent to-accent/5 animate-pulse" />
+                            
+                            <div className="relative p-6">
+                              {/* Website Header */}
+                              <div className="flex gap-5 mb-6">
+                                <div className="relative group">
+                                  <div className="w-28 h-20 rounded-xl overflow-hidden bg-dark-400/80 border border-white/10 shadow-2xl">
+                                    {siteAnalysis.thumbnail ? (
+                                      <img
+                                        src={siteAnalysis.thumbnail}
+                                        alt={siteAnalysis.domain}
+                                        className="w-full h-full object-cover object-top transition-transform group-hover:scale-105"
+                                        loading="lazy"
+                                        onError={(e) => {
+                                          const target = e.currentTarget as HTMLImageElement
+                                          // If thumbnail fails, show placeholder
+                                          target.style.display = 'none'
+                                          const fallback = target.nextElementSibling as HTMLElement
+                                          if (fallback) fallback.classList.remove('hidden')
+                                          if (fallback) fallback.classList.add('flex')
+                                        }}
+                                      />
+                                    ) : null}
+                                    <div className={`${siteAnalysis.thumbnail ? 'hidden' : 'flex'} absolute inset-0 bg-gradient-to-br from-accent/20 to-accent/40 items-center justify-center`}>
+                                      <div className="text-center">
+                                        <div className="text-2xl font-bold text-white/80">
+                                          {siteAnalysis.domain?.charAt(0).toUpperCase() || 'W'}
+                                        </div>
+                                        <div className="text-xs text-white/60">Website</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {/* Decorative Corner */}
+                                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-accent rounded-full animate-pulse" />
+                                </div>
+                                
+                                <div className="flex-1">
+                                  <h3 className="text-xl font-bold mb-1">
+                                    {siteAnalysis.contactInfo?.businessName || siteAnalysis.domain}
+                                  </h3>
+                                  <p className="text-sm text-gray-400 mb-3">{siteAnalysis.domain}</p>
+                                  
+                                  {/* Social Media Icons */}
+                                  {siteAnalysis.contactInfo?.socialLinks && Object.keys(siteAnalysis.contactInfo.socialLinks).length > 0 && (
+                                    <div className="flex gap-3">
+                                      {Object.entries(siteAnalysis.contactInfo.socialLinks).map(([platform, handle]: [string, any]) => (
+                                        <motion.div
+                                          key={platform}
+                                          whileHover={{ scale: 1.1 }}
+                                          className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center border border-white/10"
+                                        >
+                                          <span className="text-sm">
+                                            {platform === 'facebook' && '📘'}
+                                            {platform === 'instagram' && '📷'}
+                                            {platform === 'twitter' && '🐦'}
+                                            {platform === 'linkedin' && '💼'}
+                                            {platform === 'youtube' && '📺'}
+                                          </span>
+                                        </motion.div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              {/* Analysis Results Grid */}
+                              <div className="grid grid-cols-2 gap-4">
+                                {/* Pixel Status */}
+                                <motion.div
+                                  whileHover={{ scale: 1.02 }}
+                                  className={`p-4 rounded-xl border ${
+                                    siteAnalysis.pixelFound 
+                                      ? 'bg-green-500/10 border-green-500/30' 
+                                      : 'bg-red-500/10 border-red-500/30'
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                                      siteAnalysis.pixelFound ? 'bg-green-500/20' : 'bg-red-500/20'
+                                    }`}>
+                                      {siteAnalysis.pixelFound ? '✅' : '❌'}
+                                    </div>
+                                    <div className="flex-1">
+                                      <p className="font-semibold text-sm mb-1">
+                                        Pixel Status
+                                      </p>
+                                      <p className="text-xs text-gray-400">
+                                        {siteAnalysis.pixelFound ? 'Detected' : 'Not Found'}
+                                      </p>
+                                      {siteAnalysis.pixelIds && siteAnalysis.pixelIds.length > 0 && (
+                                        <p className="text-xs text-gray-500 mt-1 font-mono">
+                                          ID: {siteAnalysis.pixelIds[0].substring(0, 6)}...
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </motion.div>
+                                
+                                {/* Load Speed */}
+                                <motion.div
+                                  whileHover={{ scale: 1.02 }}
+                                  className={`p-4 rounded-xl border ${
+                                    parseFloat(siteAnalysis.loadTime) < 3 
+                                      ? 'bg-green-500/10 border-green-500/30' 
+                                      : 'bg-yellow-500/10 border-yellow-500/30'
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                                      parseFloat(siteAnalysis.loadTime) < 3 ? 'bg-green-500/20' : 'bg-yellow-500/20'
+                                    }`}>
+                                      ⚡
+                                    </div>
+                                    <div className="flex-1">
+                                      <p className="font-semibold text-sm mb-1">
+                                        Page Speed
+                                      </p>
+                                      <p className="text-xs text-gray-400">
+                                        {siteAnalysis.loadTime}s load time
+                                      </p>
+                                      <p className="text-xs text-gray-500 mt-1">
+                                        {parseFloat(siteAnalysis.loadTime) < 3 ? 'Optimal' : 'Needs work'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              </div>
+                          
+                              
+                              {/* Key Insights */}
+                              {siteAnalysis.recommendations && siteAnalysis.recommendations.length > 0 && (
+                                <div className="mt-6 p-4 bg-gradient-to-r from-yellow-500/5 to-orange-500/5 rounded-xl border border-yellow-500/20">
+                                  <div className="flex items-start gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-yellow-500/20 flex items-center justify-center flex-shrink-0">
+                                      💡
+                                    </div>
+                                    <div className="flex-1">
+                                      <p className="font-semibold text-sm mb-2 text-yellow-400">Key Insights</p>
+                                      <ul className="space-y-1">
+                                        {siteAnalysis.recommendations.slice(0, 2).map((rec: string, i: number) => (
+                                          <li key={i} className="text-xs text-gray-300 flex items-start gap-2">
+                                            <span className="text-yellow-500 mt-0.5">•</span>
+                                            <span>{rec}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Contact Info Bar */}
+                              {siteAnalysis.contactInfo && (siteAnalysis.contactInfo.emails?.length > 0 || siteAnalysis.contactInfo.phones?.length > 0) && (
+                                <div className="mt-4 flex items-center justify-between text-xs text-gray-400 px-2">
+                                  <div className="flex items-center gap-4">
+                                    {siteAnalysis.contactInfo.emails?.length > 0 && (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-gray-500">📧</span>
+                                        <span className="font-mono">{siteAnalysis.contactInfo.emails[0]}</span>
+                                      </div>
+                                    )}
+                                    {siteAnalysis.contactInfo.phones?.length > 0 && (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-gray-500">📱</span>
+                                        <span className="font-mono">{siteAnalysis.contactInfo.phones[0]}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                    
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => {
+                        if (siteAnalysis) {
+                          // If we've already analyzed and detected business info, skip questions
+                          if (siteAnalysis.businessInfo && siteAnalysis.businessInfo.businessType && siteAnalysis.businessInfo.businessType !== 'general') {
+                            // We have enough info AND we already checked pixel - skip to conversions
+                            setUrlCaptured(true)
+                            setBusinessQuestion('complete')
+                            // Store pixel status from analysis
+                            setAssessmentData(prev => ({
+                              ...prev,
+                              pixelInstalled: siteAnalysis.pixelFound || false,
+                              pixelId: siteAnalysis.pixelIds?.[0] || ''
+                            }))
+                            // Skip infrastructure and pixel steps since we already analyzed
+                            setCurrentStep('conversions')
+                          } else {
+                            // No clear business type detected, need to ask questions
+                            setUrlCaptured(true)
+                          }
+                        } else {
+                          // Otherwise, analyze first
+                          handleUrlSubmit()
+                        }
+                      }}
+                      disabled={(!tempUrl.trim() && !siteAnalysis) || analyzing}
+                      className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed mt-6"
+                    >
+                      {analyzing ? 'Analyzing...' :
+                       siteAnalysis ?
+                         (siteAnalysis.businessInfo && siteAnalysis.businessInfo.businessType && siteAnalysis.businessInfo.businessType !== 'general' ?
+                           'Continue with Detected Info →' :
+                           'Continue (Need More Info) →') :
+                       'Analyze Website →'}
+                    </motion.button>
+                    
+                    <button
+                      onClick={() => {
+                        setUrlCaptured(true)
+                        setWebsiteUrl('skipped')
+                        toast('No problem, we\'ll continue without it', { icon: '👍' })
+                      }}
+                      className="text-xs text-gray-500 hover:text-gray-400 mt-3 w-full text-center"
+                    >
+                      Skip for now
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="text-xl md:text-2xl font-bold mb-4">
+                      🎮 Quick Question, {userName}
+                    </h2>
+                    <p className="text-sm text-gray-400 mb-6">
+                      Let's see where you're at with Facebook Ads...
+                    </p>
+                    
+                    <div className="mb-6">
+                      <label className="block text-base font-medium mb-4">
+                        What's the minimum number of conversions per week needed to exit the learning phase?
+                      </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { value: 10, label: '10 conversions', emoji: '🤔' },
+                      { value: 25, label: '25 conversions', emoji: '😅' },
+                      { value: 50, label: '50 conversions', emoji: '🎯' },
+                      { value: 100, label: '100 conversions', emoji: '🤯' },
+                    ].map(option => (
+                      <motion.button
+                        key={option.value}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          if (option.value === 50) {
+                            toast.success('🎯 Correct! You know your stuff!')
+                            setAssessmentData(prev => ({ ...prev, mode: 'expert' }))
+                          } else {
+                            toast('No worries! I\'ll guide you through everything', {
+                              icon: '🤝',
+                            })
+                            setAssessmentData(prev => ({ ...prev, mode: 'guided' }))
+                          }
+                          setAssessmentStarted(true)
+                          setCurrentStep('business')
+                          trackEvent('StartAssessment', { 
+                            mode: option.value === 50 ? 'expert' : 'guided',
+                            answer: option.value 
+                          })
+                        }}
+                        className="p-4 glass-card hover:border-accent/50 transition-all group"
+                      >
+                        <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">
+                          {option.emoji}
+                        </div>
+                        <div className="font-medium">{option.label}</div>
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="text-center">
+                  <button
+                    onClick={() => {
+                      setAssessmentData(prev => ({ ...prev, mode: 'guided' }))
+                      setAssessmentStarted(true)
+                      setCurrentStep('business')
+                      toast('No problem! Let\'s take it step by step', {
+                        icon: '🚀',
+                      })
+                      trackEvent('StartAssessment', { mode: 'guided', skipped: true })
+                    }}
+                    className="text-xs text-gray-500 hover:text-accent transition"
+                  >
+                    I'm new to this → Skip to assessment
+                  </button>
+                </div>
+                
+                <p className="text-xs text-gray-500 mt-6 text-center">
+                  Takes 2-3 minutes • No email required • 100% free
+                </p>
+                  </>
+                )}
+              </motion.div>
+
+              {/* Stats */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-16">
+                <div>
+                  <div className="text-3xl font-bold gradient-text">90%</div>
+                  <div className="text-sm text-gray-400">Have Hidden Issues</div>
+                </div>
+                <div>
+                  <div className="text-3xl font-bold gradient-text">150+</div>
+                  <div className="text-sm text-gray-400">Campaigns Fixed</div>
+                </div>
+                <div>
+                  <div className="text-3xl font-bold gradient-text">£2.3M</div>
+                  <div className="text-sm text-gray-400">Ad Spend Saved</div>
+                </div>
+                <div>
+                  <div className="text-3xl font-bold gradient-text">48hrs</div>
+                  <div className="text-sm text-gray-400">To Fix Issues</div>
+                </div>
+              </div>
+            </motion.div>
+            </div>
+            
+            {/* Scroll indicator */}
+            <motion.div 
+              className="absolute bottom-8 left-1/2 transform -translate-x-1/2"
+              animate={{ y: [0, 10, 0] }}
+              transition={{ repeat: Infinity, duration: 2 }}
+            >
+              <div className="text-gray-400 text-sm">Scroll to explore</div>
+              <div className="text-2xl text-center mt-2">↓</div>
+            </motion.div>
+            </motion.section>
+          ) : (
+            // Assessment Interface - Centered in viewport
+            <motion.section 
+              key="assessment"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.5 }}
+              className="min-h-screen flex items-center justify-center px-4 py-12"
+            >
+              <div className="container max-w-4xl">
+              {/* Progress Bar */}
+              <div className="mb-8">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-gray-400">
+                    Step {currentStep === 'intro' ? 1 : currentStep === 'business' ? 2 : currentStep === 'conversions' ? 3 : currentStep === 'campaigns' ? 4 : currentStep === 'followup' ? 5 : 6} of 6
+                  </span>
+                  <span className="text-sm text-accent">
+                    {assessmentData.mode === 'expert' ? '⚡ Fast Track' : '🤝 Guided Journey'}
+                  </span>
+                </div>
+                <Progress.Root className="h-2 bg-white/10 rounded-full overflow-hidden">
+                  <Progress.Indicator 
+                    className="h-full bg-gradient-to-r from-accent to-accent-light transition-all duration-500"
+                    style={{ 
+                      width: `${
+                        currentStep === 'intro' ? 16 :
+                        currentStep === 'business' ? 33 :
+                        currentStep === 'conversions' ? 50 :
+                        currentStep === 'campaigns' ? 66 :
+                        currentStep === 'followup' ? 83 :
+                        100
+                      }%` 
+                    }}
+                  />
+                </Progress.Root>
+              </div>
+
+              <AnimatePresence mode="wait">
+                {/* Business Profile - Auto-detected or Manual */}
+                {currentStep === 'business' && (
+                  <motion.div
+                    key="business"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="glass-card p-8 min-h-[400px] flex flex-col justify-between"
+                  >
+                    <div>
+                      {/* Check if we have business info from the website analysis */}
+                      {siteAnalysis?.businessInfo && siteAnalysis.businessInfo.businessType && siteAnalysis.businessInfo.businessType !== 'general' ? (
+                        <>
+                          <h2 className="text-2xl font-bold mb-2">
+                            🤖 AI Analysis of Your Page
+                          </h2>
+                          <p className="text-sm text-gray-400 mb-2">
+                            Here's what Facebook & Google's algorithms see:
+                          </p>
+                          <p className="text-xs text-yellow-400 mb-4">
+                            ⚠️ If this doesn't match your intent, your ads won't perform!
+                          </p>
+
+                          {/* Site thumbnail - IMPORTANT for trust */}
+                          {(siteAnalysis.thumbnail || siteAnalysis.domain) && (
+                            <div className="mb-4 flex items-center gap-4">
+                              <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-700 bg-dark-400">
+                                {siteAnalysis.thumbnail ? (
+                                  <img
+                                    src={siteAnalysis.thumbnail}
+                                    alt={siteAnalysis.domain}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      console.log('Thumbnail failed, using fallback')
+                                      e.currentTarget.style.display = 'none'
+                                      // Show fallback
+                                      const fallback = e.currentTarget.nextElementSibling
+                                      if (fallback) fallback.classList.remove('hidden')
+                                    }}
+                                  />
+                                ) : null}
+                                <div className={`${siteAnalysis.thumbnail ? 'hidden' : ''} absolute inset-0 flex items-center justify-center bg-gradient-to-br from-accent/20 to-accent-light/20`}>
+                                  <span className="text-2xl font-bold text-accent">
+                                    {siteAnalysis.domain?.charAt(0).toUpperCase() || '?'}
+                                  </span>
+                                </div>
+                              </div>
+                              <div>
+                                <p className="font-semibold">{siteAnalysis.domain}</p>
+                                <p className="text-xs text-gray-400">✅ Site analyzed successfully</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* AI Reasoning */}
+                          {siteAnalysis.businessInfo.reasoning && (
+                            <div className="mb-6 p-4 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                              <div className="flex items-start gap-2">
+                                <span className="text-blue-400">💡</span>
+                                <p className="text-sm text-blue-100">
+                                  {siteAnalysis.businessInfo.reasoning}
+                                </p>
+                              </div>
+                              {siteAnalysis.businessInfo.confidence && (
+                                <div className="mt-3">
+                                  <div className="flex items-center justify-between text-xs mb-1">
+                                    <span className="text-gray-400">Analysis Confidence</span>
+                                    <span className="text-accent">{siteAnalysis.businessInfo.confidence}%</span>
+                                  </div>
+                                  <div className="w-full bg-dark-400 rounded-full h-2">
+                                    <div
+                                      className="bg-gradient-to-r from-accent to-accent-light h-2 rounded-full transition-all duration-500"
+                                      style={{ width: `${siteAnalysis.businessInfo.confidence}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Display extracted business info */}
+                          <div className="space-y-4 mb-6">
+                            <div className="p-4 rounded-xl bg-dark-400/50 border border-accent/30">
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex-1">
+                                  <p className="text-xs text-gray-400 mb-1">Business Type:</p>
+                                  <p className="font-semibold text-lg capitalize">{siteAnalysis.businessInfo.businessType}</p>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setBusinessQuestion('type')
+                                    // Also clear the complete state so the selection UI shows
+                                    setAssessmentData(prev => ({
+                                      ...prev,
+                                      businessType: null
+                                    }))
+                                  }}
+                                  className="text-xs text-red-400 hover:underline"
+                                >
+                                  Wrong? Fix it →
+                                </button>
+                              </div>
+                              
+                              {siteAnalysis.businessInfo.mainOffer && (
+                                <div className="mt-3 pt-3 border-t border-gray-700">
+                                  <p className="text-xs text-gray-400 mb-1">Main Offer:</p>
+                                  <p className="text-sm">"{siteAnalysis.businessInfo.mainOffer}"</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* CTA Analysis - Simplified */}
+                          {siteAnalysis.ctaInfo && siteAnalysis.ctaInfo.primaryCTA && (
+                            <div className="mt-4 p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-xl border border-blue-500/20">
+                              <div className="flex items-start gap-3">
+                                <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                                  🎯
+                                </div>
+                                <div className="flex-1">
+                                  <p className="font-semibold text-sm mb-2 text-blue-400">Primary Action:</p>
+
+                                  {siteAnalysis.ctaInfo.primaryCTA ? (
+                                    <>
+                                      <p className="text-base font-semibold text-white mb-2">"{siteAnalysis.ctaInfo.primaryCTA}"</p>
+
+                                      {/* Lead Form Warning - Compact */}
+                                      {(siteAnalysis.ctaInfo.conversionType === 'contact' ||
+                                        siteAnalysis.ctaInfo.conversionType === 'quote' ||
+                                        siteAnalysis.ctaInfo.conversionType === 'booking') && (
+                                        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-2 mb-2">
+                                          <p className="text-xs text-yellow-400">
+                                            ⚠️ <span className="font-semibold">Lead Form Warning:</span> Leads bypass your site - need CRM & fast follow-up!
+                                          </p>
+                                        </div>
+                                      )}
+
+                                      {/* Available Conversion Methods */}
+                                      <div className="flex flex-wrap gap-2 mt-2">
+                                        {siteAnalysis.ctaInfo.hasForm && (
+                                          <span className="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded-lg">
+                                            ✓ Has Form
+                                          </span>
+                                        )}
+                                        {siteAnalysis.ctaInfo.hasChat && (
+                                          <span className="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded-lg">
+                                            ✓ Has Chat
+                                          </span>
+                                        )}
+                                        {siteAnalysis.ctaInfo.hasCalendar && (
+                                          <span className="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded-lg">
+                                            ✓ Has Booking
+                                          </span>
+                                        )}
+                                        {!siteAnalysis.ctaInfo.hasForm && !siteAnalysis.ctaInfo.hasChat && !siteAnalysis.ctaInfo.hasCalendar && (
+                                          <span className="text-xs px-2 py-1 bg-red-500/20 text-red-400 rounded-lg">
+                                            ⚠️ No conversion forms detected
+                                          </span>
+                                        )}
+                                      </div>
+
+                                    </>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Store the extracted data */}
+                          {(() => {
+                            // Auto-set business data if not already set
+                            if (!assessmentData.businessType && siteAnalysis.businessInfo.businessType) {
+                              setAssessmentData(prev => ({
+                                ...prev,
+                                businessType: siteAnalysis.businessInfo.businessType as any,
+                                businessOffer: siteAnalysis.businessInfo.mainOffer,
+                                pricePoint: siteAnalysis.businessInfo.priceRange || 'medium',
+                                targetMarket: siteAnalysis.businessInfo.targetAudience || 'general'
+                              }))
+                            }
+                            return null
+                          })()}
+                        </>
+                      ) : (
+                        <>
+                          {/* Show site thumbnail even if business type not detected - IMPORTANT for trust */}
+                          {(siteAnalysis?.thumbnail || siteAnalysis?.domain) && (
+                            <div className="mb-4 flex items-center gap-4">
+                              <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-700 bg-dark-400">
+                                {siteAnalysis.thumbnail ? (
+                                  <img
+                                    src={siteAnalysis.thumbnail}
+                                    alt={siteAnalysis.domain}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      console.log('Thumbnail failed, using fallback')
+                                      e.currentTarget.style.display = 'none'
+                                      // Show fallback
+                                      const fallback = e.currentTarget.nextElementSibling
+                                      if (fallback) fallback.classList.remove('hidden')
+                                    }}
+                                  />
+                                ) : null}
+                                <div className={`${siteAnalysis.thumbnail ? 'hidden' : ''} absolute inset-0 flex items-center justify-center bg-gradient-to-br from-accent/20 to-accent-light/20`}>
+                                  <span className="text-2xl font-bold text-accent">
+                                    {siteAnalysis.domain?.charAt(0).toUpperCase() || '?'}
+                                  </span>
+                                </div>
+                              </div>
+                              <div>
+                                <p className="font-semibold">{siteAnalysis.domain}</p>
+                                <p className="text-xs text-gray-400">✅ Site analyzed successfully</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Show warning if AI couldn't determine business type */}
+                          {siteAnalysis?.businessInfo && (siteAnalysis.businessInfo.businessType === 'general' || !siteAnalysis.businessInfo.businessType) && (
+                            <div className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
+                              <h3 className="font-bold text-red-400 mb-2">⚠️ Website Clarity Issue Detected</h3>
+                              <p className="text-sm text-red-100 mb-3">
+                                Our AI couldn't clearly identify what your business does from your website. This is a critical issue because:
+                              </p>
+                              <ul className="space-y-2 text-sm">
+                                <li className="flex items-start gap-2">
+                                  <span className="text-red-400">•</span>
+                                  <span>Facebook's AI won't know how to categorize your business</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <span className="text-red-400">•</span>
+                                  <span>Your ads will target the wrong audiences</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <span className="text-red-400">•</span>
+                                  <span>You might be using a website when you need a focused landing page</span>
+                                </li>
+                              </ul>
+                              <div className="mt-3 p-3 bg-dark-400/50 rounded">
+                                <p className="text-xs text-gray-300">
+                                  <strong>Pro tip:</strong> Landing pages convert 2-3x better than websites for ads because they have ONE clear message and action.
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Original manual questions if no business info detected */}
+                          <div className="flex items-center gap-2 mb-6">
+                            {['type', 'price', 'market', 'model'].map((q, idx) => (
+                              <div
+                                key={q}
+                                className={`h-1 flex-1 rounded-full transition-all ${
+                                  idx < ['type', 'price', 'market', 'model'].indexOf(businessQuestion)
+                                    ? 'bg-accent'
+                                    : idx === ['type', 'price', 'market', 'model'].indexOf(businessQuestion)
+                                    ? 'bg-accent/50'
+                                    : 'bg-white/10'
+                                }`}
+                              />
+                            ))}
+                          </div>
+
+                          <h2 className="text-2xl font-bold mb-2">
+                            🎯 Let's Understand Your Business
+                          </h2>
+                          <p className="text-sm text-gray-400 mb-8">
+                            Question {['type', 'price', 'market', 'model'].indexOf(businessQuestion) + 1} of 4
+                          </p>
+                        </>
+                      )}
+
+                      <AnimatePresence mode="wait">
+                        {/* Business Type Question */}
+                        {businessQuestion === 'type' && (
+                          <motion.div
+                            key="type"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                          >
+                            <label className="block text-lg font-medium mb-6">
+                              What's the purpose of this page?
+                            </label>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {[
+                                { id: 'landing', label: 'Landing Page', icon: '🎯', desc: 'Dedicated page for ad campaigns' },
+                                { id: 'homepage', label: 'Homepage', icon: '🏠', desc: 'Main website homepage' },
+                                { id: 'product', label: 'Product Page', icon: '🛍️', desc: 'Specific product or service' },
+                                { id: 'booking', label: 'Booking Page', icon: '📅', desc: 'Schedule appointments or calls' },
+                                { id: 'content', label: 'Blog/Content', icon: '📝', desc: 'Article or informational page' },
+                                { id: 'other', label: 'Other', icon: '❓', desc: 'Different purpose' },
+                              ].map(type => (
+                                <motion.button
+                                  key={type.id}
+                                  whileHover={{ scale: 1.02 }}
+                                  whileTap={{ scale: 0.98 }}
+                                  onClick={() => {
+                                    setAssessmentData(prev => ({ ...prev, businessType: type.id as any }))
+                                    setTimeout(() => setBusinessQuestion('price'), 300)
+                                  }}
+                                  className={`p-4 rounded-lg border-2 transition-all text-left flex items-start gap-3 ${
+                                    assessmentData.businessType === type.id
+                                      ? 'border-accent bg-accent/20'
+                                      : 'border-gray-600 hover:border-gray-500'
+                                  }`}
+                                >
+                                  <div className="text-2xl">{type.icon}</div>
+                                  <div>
+                                    <div className="font-medium">{type.label}</div>
+                                    <div className="text-xs text-gray-400">{type.desc}</div>
+                                  </div>
+                                </motion.button>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+
+                        {/* Price Point Question - Dynamic based on business type */}
+                        {businessQuestion === 'price' && (
+                          <motion.div
+                            key="price"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                          >
+                            <label className="block text-lg font-medium mb-6">
+                              {assessmentData.businessType === 'service' 
+                                ? "What's your typical project value?"
+                                : assessmentData.businessType === 'local'
+                                ? "What's your average transaction?"
+                                : "What's your average order value?"}
+                            </label>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {(assessmentData.businessType === 'service' ? [
+                                { id: 'low', label: 'Starter', range: '< $1,000', desc: 'Small projects' },
+                                { id: 'medium', label: 'Professional', range: '$1k - $10k', desc: 'Standard projects' },
+                                { id: 'high', label: 'Premium', range: '$10k - $50k', desc: 'Large projects' },
+                                { id: 'enterprise', label: 'Enterprise', range: '> $50k', desc: 'Major contracts' },
+                              ] : [
+                                { id: 'low', label: 'Low Ticket', range: '< $50', desc: 'Impulse buys' },
+                                { id: 'medium', label: 'Medium Ticket', range: '$50 - $500', desc: 'Considered purchases' },
+                                { id: 'high', label: 'High Ticket', range: '$500 - $5,000', desc: 'Major purchases' },
+                                { id: 'enterprise', label: 'Luxury', range: '> $5,000', desc: 'Premium products' },
+                              ]).map(price => (
+                                <motion.button
+                                  key={price.id}
+                                  whileHover={{ scale: 1.02 }}
+                                  whileTap={{ scale: 0.98 }}
+                                  onClick={() => {
+                                    setAssessmentData(prev => ({ ...prev, pricePoint: price.id as any }))
+                                    setTimeout(() => setBusinessQuestion('market'), 300)
+                                  }}
+                                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                                    assessmentData.pricePoint === price.id
+                                      ? 'border-accent bg-accent/20'
+                                      : 'border-gray-600 hover:border-gray-500'
+                                  }`}
+                                >
+                                  <div className="font-medium">{price.label}</div>
+                                  <div className="text-accent font-bold text-sm my-1">{price.range}</div>
+                                  <div className="text-xs text-gray-400">{price.desc}</div>
+                                </motion.button>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+
+                        {/* Target Market Question - Dynamic based on business type */}
+                        {businessQuestion === 'market' && (
+                          <motion.div
+                            key="market"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                          >
+                            <label className="block text-lg font-medium mb-6">
+                              {assessmentData.businessType === 'local'
+                                ? "What's your service area?"
+                                : "Who's your target market?"}
+                            </label>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              {(assessmentData.businessType === 'local' ? [
+                                { id: 'local', label: 'Neighborhood', icon: '🏘️', desc: '< 5 miles' },
+                                { id: 'city', label: 'City-wide', icon: '🌆', desc: '5-25 miles' },
+                                { id: 'regional', label: 'Regional', icon: '🗺️', desc: 'Multiple cities' },
+                              ] : [
+                                { id: 'local', label: 'Local', icon: '🏘️', desc: 'Single city/region' },
+                                { id: 'national', label: 'National', icon: '🏛️', desc: 'Entire country' },
+                                { id: 'global', label: 'Global', icon: '🌍', desc: 'International' },
+                              ]).map(market => (
+                                <motion.button
+                                  key={market.id}
+                                  whileHover={{ scale: 1.02 }}
+                                  whileTap={{ scale: 0.98 }}
+                                  onClick={() => {
+                                    setAssessmentData(prev => ({ ...prev, targetMarket: market.id as any }))
+                                    setTimeout(() => setBusinessQuestion('model'), 300)
+                                  }}
+                                  className={`p-4 rounded-lg border-2 transition-all ${
+                                    assessmentData.targetMarket === market.id
+                                      ? 'border-accent bg-accent/20'
+                                      : 'border-gray-600 hover:border-gray-500'
+                                  }`}
+                                >
+                                  <div className="text-2xl mb-2">{market.icon}</div>
+                                  <div className="font-medium text-sm">{market.label}</div>
+                                  <div className="text-xs text-gray-400">{market.desc}</div>
+                                </motion.button>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+
+                        {/* Sales Model Question - Dynamic based on all previous answers */}
+                        {businessQuestion === 'model' && (
+                          <motion.div
+                            key="model"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                          >
+                            <label className="block text-lg font-medium mb-6">
+                              {assessmentData.pricePoint === 'high' || assessmentData.pricePoint === 'enterprise'
+                                ? "How do you close deals?"
+                                : "How do customers buy from you?"}
+                            </label>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              {(assessmentData.pricePoint === 'high' || assessmentData.pricePoint === 'enterprise' ? [
+                                { id: 'lead-gen', label: 'Consultation First', icon: '📞', desc: 'Book calls or meetings' },
+                                { id: 'direct', label: 'Direct Purchase', icon: '💳', desc: 'Buy without talking' },
+                                { id: 'both', label: 'Hybrid Model', icon: '🔄', desc: 'Both options available' },
+                              ] : [
+                                { id: 'direct', label: 'Direct Sale', icon: '🛒', desc: 'Add to cart & buy' },
+                                { id: 'lead-gen', label: 'Lead Generation', icon: '📧', desc: 'Capture info first' },
+                                { id: 'both', label: 'Both Methods', icon: '🔄', desc: 'Mixed approach' },
+                              ]).map(model => (
+                                <motion.button
+                                  key={model.id}
+                                  whileHover={{ scale: 1.02 }}
+                                  whileTap={{ scale: 0.98 }}
+                                  onClick={() => {
+                                    setAssessmentData(prev => ({ ...prev, salesModel: model.id as any }))
+                                    setTimeout(() => setCurrentStep('conversions'), 300)
+                                  }}
+                                  className={`p-4 rounded-lg border-2 transition-all ${
+                                    assessmentData.salesModel === model.id
+                                      ? 'border-accent bg-accent/20'
+                                      : 'border-gray-600 hover:border-gray-500'
+                                  }`}
+                                >
+                                  <div className="text-2xl mb-2">{model.icon}</div>
+                                  <div className="font-medium text-sm">{model.label}</div>
+                                  <div className="text-xs text-gray-400">{model.desc}</div>
+                                </motion.button>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* Navigation */}
+                    <div className="flex items-center justify-between mt-8">
+                      <button
+                        onClick={() => {
+                          // If we have auto-detected business info, go back to intro
+                          if (siteAnalysis?.businessInfo && siteAnalysis.businessInfo.businessType) {
+                            setAssessmentStarted(false)
+                            setCurrentStep('intro')
+                          } else if (businessQuestion === 'type') {
+                            setAssessmentStarted(false)
+                            setCurrentStep('intro')
+                          } else if (businessQuestion === 'price') {
+                            setBusinessQuestion('type')
+                          } else if (businessQuestion === 'market') {
+                            setBusinessQuestion('price')
+                          } else if (businessQuestion === 'model') {
+                            setBusinessQuestion('market')
+                          }
+                        }}
+                        className="btn-secondary"
+                      >
+                        ← Back
+                      </button>
+                      
+                      {/* If we have auto-detected business info, show continue button */}
+                      {siteAnalysis?.businessInfo && siteAnalysis.businessInfo.businessType && siteAnalysis.businessInfo.businessType !== 'general' ? (
+                        <button
+                          onClick={() => {
+                            setCurrentStep('conversions')
+                          }}
+                          className="btn-primary"
+                        >
+                          Continue with These Details →
+                        </button>
+                      ) : (
+                        businessQuestion !== 'model' && (
+                          <button
+                            onClick={() => {
+                              if (businessQuestion === 'type' && assessmentData.businessType) {
+                                setBusinessQuestion('price')
+                              } else if (businessQuestion === 'price' && assessmentData.pricePoint) {
+                                setBusinessQuestion('market')
+                              } else if (businessQuestion === 'market' && assessmentData.targetMarket) {
+                                setBusinessQuestion('model')
+                              }
+                            }}
+                            disabled={
+                              (businessQuestion === 'type' && !assessmentData.businessType) ||
+                              (businessQuestion === 'price' && !assessmentData.pricePoint) ||
+                              (businessQuestion === 'market' && !assessmentData.targetMarket)
+                            }
+                            className="text-sm text-gray-400 hover:text-accent transition disabled:opacity-50"
+                          >
+                            Skip question →
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Infrastructure Check - REMOVED - We already check this in the initial analysis
+                {currentStep === 'infrastructure' && (
+                  <motion.div
+                    key="infrastructure"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="glass-card p-8"
+                  >
+                    <h2 className="text-2xl font-bold mb-6">
+                      📡 Ad Platform Setup
+                    </h2>
+                    
+                    {/* Visual Health Monitor */}
+                    <div className="relative mb-8">
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className={`p-4 rounded-lg border-2 transition-all ${
+                          assessmentData.businessManager === true ? 'border-green-500 bg-green-500/10' :
+                          assessmentData.businessManager === false ? 'border-red-500 bg-red-500/10 animate-pulse' :
+                          'border-gray-600'
+                        }`}>
+                          <div className="text-2xl mb-2">🧠</div>
+                          <div className="text-sm">Business Manager</div>
+                        </div>
+                        
+                        <div className={`p-4 rounded-lg border-2 transition-all ${
+                          assessmentData.businessInfoConnected === true ? 'border-green-500 bg-green-500/10' :
+                          assessmentData.businessInfoConnected === false ? 'border-red-500 bg-red-500/10 animate-pulse' :
+                          'border-gray-600'
+                        }`}>
+                          <div className="text-2xl mb-2">❤️</div>
+                          <div className="text-sm">Business Info</div>
+                        </div>
+                        
+                        <div className={`p-4 rounded-lg border-2 transition-all ${
+                          assessmentData.businessManager === true ? 'border-green-500 bg-green-500/10' :
+                          assessmentData.businessManager === false ? 'border-red-500 bg-red-500/10 animate-pulse' :
+                          'border-gray-600'
+                        }`}>
+                          <div className="text-2xl mb-2">📱</div>
+                          <div className="text-sm">FB Page Connected</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <p className="mb-3 font-medium">Which ad platforms are you using?</p>
+                        <div className="grid grid-cols-3 gap-3">
+                          <button
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, businessManager: true }))
+                              setPulseAreas(['businessManager'])
+                            }}
+                            className={`p-3 rounded-lg border-2 transition-all ${
+                              assessmentData.businessManager === true 
+                                ? 'border-accent bg-accent/20' 
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            Yes ✅
+                          </button>
+                          <button
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, businessManager: false }))
+                              toast.error('Critical issue detected!')
+                            }}
+                            className={`p-3 rounded-lg border-2 transition-all ${
+                              assessmentData.businessManager === false 
+                                ? 'border-red-500 bg-red-500/20' 
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            No ❌
+                          </button>
+                          <button
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, businessManager: false }))
+                              toast('😱 Houston, we have a problem!')
+                            }}
+                            className="p-3 rounded-lg border-2 border-gray-600 hover:border-yellow-500"
+                          >
+                            What's that? 🤔
+                          </button>
+                        </div>
+                      </div>
+
+                      {assessmentData.businessManager === true && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                        >
+                          <p className="mb-3 font-medium">Is your Business Info connected to your Facebook Page?</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <button
+                              onClick={() => setAssessmentData(prev => ({ ...prev, businessInfoConnected: true }))}
+                              className={`p-3 rounded-lg border-2 transition-all ${
+                                assessmentData.businessInfoConnected === true 
+                                  ? 'border-accent bg-accent/20' 
+                                  : 'border-gray-600 hover:border-gray-500'
+                              }`}
+                            >
+                              Yes, connected ✅
+                            </button>
+                            <button
+                              onClick={() => {
+                                setAssessmentData(prev => ({ ...prev, businessInfoConnected: false }))
+                                toast.error('This limits your ad capabilities!')
+                              }}
+                              className={`p-3 rounded-lg border-2 transition-all ${
+                                assessmentData.businessInfoConnected === false 
+                                  ? 'border-red-500 bg-red-500/20' 
+                                  : 'border-gray-600 hover:border-gray-500'
+                              }`}
+                            >
+                              No / Not sure ❌
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between mt-8">
+                      <div className="flex items-center gap-4">
+                        <button
+                          onClick={() => setCurrentStep('business')}
+                          className="btn-secondary"
+                        >
+                          ← Back
+                        </button>
+                        <button
+                          onClick={skipInfrastructure}
+                          className="text-sm text-gray-400 hover:text-accent transition"
+                        >
+                          Skip this section
+                        </button>
+                      </div>
+                      
+                      <button
+                        onClick={() => setCurrentStep('pixel')}
+                        disabled={assessmentData.businessManager === null}
+                        className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Next: Pixel Check →
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Pixel Health Check - Smart Version */}
+                {currentStep === 'pixel' && (
+                  <motion.div
+                    key="pixel"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="glass-card p-8"
+                  >
+                    <h2 className="text-2xl font-bold mb-6">
+                      💓 Confirming Your Setup
+                    </h2>
+                    
+                    {/* Pre-filled with detected data */}
+                    {siteAnalysis && (
+                      <div className="space-y-4 mb-6">
+                        {/* Show what we detected */}
+                        <div className="bg-dark-400/50 rounded-xl p-4">
+                          <p className="text-sm font-semibold mb-3 text-accent">
+                            Here's what we found on {siteAnalysis.contactInfo?.businessName || websiteUrl}:
+                          </p>
+                          
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between py-2 border-b border-gray-700">
+                              <span className="text-sm text-gray-400">Facebook Pixel</span>
+                              <span className={`text-sm font-semibold ${siteAnalysis.pixelFound ? 'text-green-400' : 'text-red-400'}`}>
+                                {siteAnalysis.pixelFound ? `✅ Found (${siteAnalysis.pixelIds?.[0]?.substring(0, 6)}...)` : '❌ Not Detected'}
+                              </span>
+                            </div>
+                            
+                            {siteAnalysis.contactInfo?.socialLinks?.facebook && (
+                              <div className="flex items-center justify-between py-2 border-b border-gray-700">
+                                <span className="text-sm text-gray-400">Facebook Page</span>
+                                <span className="text-sm font-semibold text-blue-400">
+                                  📘 @{siteAnalysis.contactInfo.socialLinks.facebook}
+                                </span>
+                              </div>
+                            )}
+                            
+                            <div className="flex items-center justify-between py-2">
+                              <span className="text-sm text-gray-400">Page Load Speed</span>
+                              <span className={`text-sm font-semibold ${parseFloat(siteAnalysis.loadTime) < 3 ? 'text-green-400' : 'text-yellow-400'}`}>
+                                {siteAnalysis.loadTime}s {parseFloat(siteAnalysis.loadTime) < 3 ? '✅' : '⚠️'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Auto-set the pixel data based on detection */}
+                        {(() => {
+                          // Automatically update assessment data based on detection
+                          if (siteAnalysis.pixelFound && assessmentData.pixelInstalled === null) {
+                            setAssessmentData(prev => ({ ...prev, pixelInstalled: true }))
+                          } else if (!siteAnalysis.pixelFound && assessmentData.pixelInstalled === null) {
+                            setAssessmentData(prev => ({ ...prev, pixelInstalled: false }))
+                          }
+                          return null
+                        })()}
+                      </div>
+                    )}
+                    {/* Educational Questions Instead of Redundant Pixel Check */}
+                    <div className="space-y-5">
+                      {/* Landing Page Strategy */}
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-xl p-5 border border-blue-500/20"
+                      >
+                        <div className="flex items-start gap-3 mb-4">
+                          <span className="text-2xl">🎯</span>
+                          <div>
+                            <p className="font-semibold text-blue-400 mb-1">Landing Page Strategy</p>
+                            <p className="text-sm text-gray-300">Where are you sending your Facebook ad traffic?</p>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <motion.button
+                            whileHover={{ scale: 1.01 }}
+                            whileTap={{ scale: 0.99 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, hasLandingPage: true, pixelFiring: true }))
+                              toast.success('Smart! Dedicated landing pages convert 2-3x better')
+                            }}
+                            className={`w-full p-3 rounded-lg border text-left transition-all ${
+                              assessmentData.hasLandingPage === true 
+                                ? 'border-green-500 bg-green-500/10 text-white' 
+                                : 'border-gray-600 hover:border-accent/50 bg-dark-400/30'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="font-medium">Dedicated Landing Page</span>
+                                <span className="text-xs text-gray-400 block mt-1">Custom page matching ad message</span>
+                              </div>
+                              {assessmentData.hasLandingPage === true && <span className="text-green-400">✓</span>}
+                            </div>
+                          </motion.button>
+                          
+                          <motion.button
+                            whileHover={{ scale: 1.01 }}
+                            whileTap={{ scale: 0.99 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, hasLandingPage: false, pixelFiring: false }))
+                              toast.error('This alone could be why your ads aren\'t working!', { duration: 4000 })
+                            }}
+                            className={`w-full p-3 rounded-lg border text-left transition-all ${
+                              assessmentData.hasLandingPage === false 
+                                ? 'border-yellow-500 bg-yellow-500/10 text-white' 
+                                : 'border-gray-600 hover:border-accent/50 bg-dark-400/30'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="font-medium">Homepage or Product Page</span>
+                                <span className="text-xs text-gray-400 block mt-1">Generic pages with distractions</span>
+                              </div>
+                              {assessmentData.hasLandingPage === false && <span className="text-yellow-400">⚠️</span>}
+                            </div>
+                          </motion.button>
+                        </div>
+                        
+                        {assessmentData.hasLandingPage === false && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="mt-3 p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20"
+                          >
+                            <p className="text-xs text-yellow-400">
+                              <span className="font-semibold">Why this matters:</span> Homepage visitors have a 
+                              2.35% conversion rate vs 11.45% for dedicated landing pages. You're losing 80% of potential customers!
+                            </p>
+                          </motion.div>
+                        )}
+                      </motion.div>
+                      
+                      {/* Conversion Optimization */}
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1 }}
+                        className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-xl p-5 border border-purple-500/20"
+                      >
+                        <div className="flex items-start gap-3 mb-4">
+                          <span className="text-2xl">🎪</span>
+                          <div>
+                            <p className="font-semibold text-purple-400 mb-1">What Are You Optimizing For?</p>
+                            <p className="text-sm text-gray-300">Facebook will find more of what you tell it to find</p>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { value: 'purchase', label: 'Purchases', emoji: '💳', good: true, message: 'Perfect for e-commerce!' },
+                            { value: 'lead', label: 'Lead Forms', emoji: '📋', good: true, message: 'Great for service businesses!' },
+                            { value: 'traffic', label: 'Link Clicks', emoji: '👆', good: false, message: 'This is why you\'re not profitable!' },
+                            { value: 'engagement', label: 'Likes/Comments', emoji: '💬', good: false, message: 'Vanity metrics don\'t pay bills!' }
+                          ].map(option => (
+                            <motion.button
+                              key={option.value}
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => {
+                                setAssessmentData(prev => ({ ...prev, optimizingFor: option.value }))
+                                if (option.good) {
+                                  toast.success(option.message)
+                                } else {
+                                  toast.error(option.message, { duration: 4000 })
+                                }
+                              }}
+                              className={`p-3 rounded-lg border text-center transition-all ${
+                                assessmentData.optimizingFor === option.value 
+                                  ? option.good 
+                                    ? 'border-green-500 bg-green-500/10' 
+                                    : 'border-red-500 bg-red-500/10'
+                                  : 'border-gray-600 hover:border-accent/50 bg-dark-400/30'
+                              }`}
+                            >
+                              <div className="text-2xl mb-1">{option.emoji}</div>
+                              <div className="text-xs font-medium">{option.label}</div>
+                            </motion.button>
+                          ))}
+                        </div>
+                        
+                        {assessmentData.optimizingFor && ['traffic', 'engagement'].includes(assessmentData.optimizingFor) && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="mt-3 p-3 bg-red-500/10 rounded-lg border border-red-500/20"
+                          >
+                            <p className="text-xs text-red-400">
+                              <span className="font-semibold">Critical Issue:</span> You're optimizing for the wrong thing! 
+                              Facebook is finding people who click or engage, NOT people who buy. Switch to conversion objectives immediately.
+                            </p>
+                          </motion.div>
+                        )}
+                      </motion.div>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-8">
+                      <button
+                        onClick={() => setCurrentStep('business')}
+                        className="btn-secondary"
+                      >
+                        ← Back
+                      </button>
+                      
+                      <button
+                        onClick={() => setCurrentStep('conversions')}
+                        disabled={assessmentData.pixelInstalled === null}
+                        className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Next: Conversion Analysis →
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Educational Conversion Revelation */}
+                {currentStep === 'conversions' && (
+                  <motion.div
+                    key="conversions"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="glass-card p-8"
+                  >
+                    <h2 className="text-2xl font-bold mb-6">
+                      🎯 The 50 Conversion Rule
+                    </h2>
+
+                    <div className="space-y-6">
+                      {/* Opening Revelation */}
+                      <div className="text-center mb-8">
+                        <p className="text-lg mb-4">Quick question - how many conversions does your campaign get per week?</p>
+                        <div className="grid grid-cols-3 gap-4">
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, weeklyConversions: 'low' }))
+                            }}
+                            className={`p-6 rounded-xl border-2 transition-all ${
+                              assessmentData.weeklyConversions === 'low'
+                                ? 'border-red-500 bg-red-500/20'
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            <div className="text-3xl mb-2">🔴</div>
+                            <div className="font-medium">Less than 10</div>
+                            <div className="text-xs text-gray-400 mt-1">Struggling</div>
+                          </motion.button>
+
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, weeklyConversions: 'medium' }))
+                            }}
+                            className={`p-6 rounded-xl border-2 transition-all ${
+                              assessmentData.weeklyConversions === 'medium'
+                                ? 'border-yellow-500 bg-yellow-500/20'
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            <div className="text-3xl mb-2">🟪</div>
+                            <div className="font-medium">10-50</div>
+                            <div className="text-xs text-gray-400 mt-1">Getting there</div>
+                          </motion.button>
+
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, weeklyConversions: 'high' }))
+                            }}
+                            className={`p-6 rounded-xl border-2 transition-all ${
+                              assessmentData.weeklyConversions === 'high'
+                                ? 'border-green-500 bg-green-500/20'
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            <div className="text-3xl mb-2">🟢</div>
+                            <div className="font-medium">50+</div>
+                            <div className="text-xs text-gray-400 mt-1">Optimized!</div>
+                          </motion.button>
+                        </div>
+                      </div>
+
+                      {/* The Aha Moment */}
+                      {assessmentData.weeklyConversions && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={`p-6 rounded-xl border-2 ${
+                            assessmentData.weeklyConversions === 'low' ? 'bg-red-500/10 border-red-500' :
+                            assessmentData.weeklyConversions === 'medium' ? 'bg-yellow-500/10 border-yellow-500' :
+                            'bg-green-500/10 border-green-500'
+                          }`}
+                        >
+                          <div className="flex items-start gap-4">
+                            <div className="text-3xl">
+                              {assessmentData.weeklyConversions === 'low' ? '⚠️' :
+                               assessmentData.weeklyConversions === 'medium' ? '💡' : '✅'}
+                            </div>
+                            <div>
+                              <p className="font-bold text-lg mb-2">
+                                {assessmentData.weeklyConversions === 'low' ? "Here's why your costs are so high!" :
+                                 assessmentData.weeklyConversions === 'medium' ? "You're almost there!" :
+                                 "Perfect! You're in the optimization sweet spot!"}
+                              </p>
+                              <p className="text-sm text-gray-300">
+                                {assessmentData.weeklyConversions === 'low' ?
+                                  "Facebook's algorithm needs at least 50 conversions per week to optimize properly. With less than 10, it's essentially guessing who to show your ads to. That's why you're paying premium prices for poor results!" :
+                                 assessmentData.weeklyConversions === 'medium' ?
+                                  "You're getting close to the magic number. Facebook needs 50+ conversions weekly to fully optimize. Consider optimizing for an easier action temporarily to hit this threshold." :
+                                  "With 50+ conversions per week, Facebook's algorithm can properly learn and optimize. Your costs should be competitive and performance stable."}
+                              </p>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {/* The Pyramid Visualization */}
+                      {assessmentData.weeklyConversions === 'low' && (
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.5 }}
+                          className="mt-8"
+                        >
+                          <h3 className="text-lg font-bold mb-4">The Solution: The Conversion Pyramid</h3>
+                          <div className="relative">
+                            {/* Pyramid visualization */}
+                            <div className="flex flex-col items-center">
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{ delay: 0.7 }}
+                                className="w-32 h-12 bg-red-500/20 border-2 border-red-500 rounded-lg flex items-center justify-center mb-2"
+                              >
+                                <span className="text-xs font-medium">💰 Purchase</span>
+                              </motion.div>
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{ delay: 0.9 }}
+                                className="w-48 h-12 bg-yellow-500/20 border-2 border-yellow-500 rounded-lg flex items-center justify-center mb-2"
+                              >
+                                <span className="text-sm font-medium">🛒 Add to Cart</span>
+                              </motion.div>
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{ delay: 1.1 }}
+                                className="w-64 h-12 bg-green-500/20 border-2 border-green-500 rounded-lg flex items-center justify-center"
+                              >
+                                <span className="text-sm font-medium">👀 View Content</span>
+                              </motion.div>
+                            </div>
+
+                            <motion.div
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              transition={{ delay: 1.3 }}
+                              className="mt-6 p-4 bg-blue-500/10 border border-blue-500 rounded-xl"
+                            >
+                              <p className="text-sm font-medium mb-2">🎯 Pro Strategy:</p>
+                              <p className="text-sm text-gray-300">
+                                Can't get 50 purchases/week? Start by optimizing for View Content or Add to Cart!
+                                Once you consistently hit 50 events/week, move up the pyramid.
+                              </p>
+                            </motion.div>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      <div>
+                        <p className="mb-3 font-medium">What are you currently optimizing for?</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {['Purchase', 'Lead', 'Add to Cart', 'View Content'].map(opt => (
+                            <button
+                              key={opt}
+                              onClick={() => setAssessmentData(prev => ({ ...prev, optimizingFor: opt }))}
+                              className={`p-3 rounded-lg border-2 transition-all ${
+                                assessmentData.optimizingFor === opt
+                                  ? 'border-accent bg-accent/20'
+                                  : 'border-gray-600 hover:border-gray-500'
+                              }`}
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="mb-3 font-medium">How many conversions per week?</p>
+                        <input
+                          type="number"
+                          placeholder="Enter number..."
+                          onChange={(e) => {
+                            const value = parseInt(e.target.value)
+                            setAssessmentData(prev => ({ ...prev, conversionsPerWeek: value }))
+                          }}
+                          className="w-full p-3 bg-dark-400/50 border border-gray-600 rounded-lg focus:border-accent focus:outline-none"
+                        />
+                        
+                        {assessmentData.conversionsPerWeek !== null && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="mt-4 p-4 rounded-lg bg-dark-400/50"
+                          >
+                            {assessmentData.conversionsPerWeek < 50 ? (
+                              <div>
+                                <p className="text-yellow-400 font-bold mb-2">
+                                  ⚠️ Learning Limited Warning!
+                                </p>
+                                <p className="text-sm text-gray-400">
+                                  You need {50 - assessmentData.conversionsPerWeek} more conversions/week to exit learning phase.
+                                  We can build you a conversion ladder system to fix this!
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-green-400">
+                                ✅ Great! You have enough volume to optimize properly.
+                              </p>
+                            )}
+                          </motion.div>
+                        )}
+                      </div>
+
+                      <div>
+                        <p className="mb-3 font-medium">Monthly ad spend?</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {[
+                            { label: '< £1k', value: 500 },
+                            { label: '£1-3k', value: 2000 },
+                            { label: '£3-10k', value: 6500 },
+                            { label: '£10k+', value: 15000 }
+                          ].map(opt => (
+                            <button
+                              key={opt.label}
+                              onClick={() => setAssessmentData(prev => ({ ...prev, monthlyBudget: opt.value }))}
+                              className={`p-3 rounded-lg border-2 transition-all ${
+                                assessmentData.monthlyBudget === opt.value 
+                                  ? 'border-accent bg-accent/20' 
+                                  : 'border-gray-600 hover:border-gray-500'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-8">
+                      <button
+                        onClick={() => setCurrentStep('pixel')}
+                        className="btn-secondary"
+                      >
+                        ← Back
+                      </button>
+                      
+                      <button
+                        onClick={() => setCurrentStep('campaigns')}
+                        disabled={!assessmentData.optimizingFor || assessmentData.conversionsPerWeek === null}
+                        className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Next: Campaign Structure →
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Traffic Temperature - The Advertorial Strategy */}
+                {currentStep === 'campaigns' && (
+                  <motion.div
+                    key="campaigns"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="glass-card p-8"
+                  >
+                    <h2 className="text-2xl font-bold mb-6">
+                      🌡️ The Traffic Temperature Strategy
+                    </h2>
+
+                    <div className="space-y-6">
+                      {/* The Advertorial Concept */}
+                      <div className="text-center mb-6">
+                        <p className="text-lg mb-4">Are you sending cold traffic straight to a "Buy Now" page?</p>
+                        <div className="grid grid-cols-3 gap-4">
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, trafficStrategy: 'direct' }))
+                            }}
+                            className={`p-6 rounded-xl border-2 transition-all relative ${
+                              assessmentData.trafficStrategy === 'direct'
+                                ? 'border-red-500 bg-red-500/20'
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            <div className="absolute top-2 right-2 text-xs text-red-400">⚠️ Cold</div>
+                            <div className="text-2xl mb-2">🥶</div>
+                            <div className="font-medium text-sm">Direct to Offer</div>
+                            <div className="text-xs text-gray-400 mt-1">"Buy Now!"</div>
+                            <div className="text-xs text-red-400 mt-2">0.5% convert</div>
+                          </motion.button>
+
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, trafficStrategy: 'warm' }))
+                            }}
+                            className={`p-6 rounded-xl border-2 transition-all relative ${
+                              assessmentData.trafficStrategy === 'warm'
+                                ? 'border-yellow-500 bg-yellow-500/20'
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            <div className="absolute top-2 right-2 text-xs text-yellow-400">🌡️ Warm</div>
+                            <div className="text-2xl mb-2">😊</div>
+                            <div className="font-medium text-sm">Value First</div>
+                            <div className="text-xs text-gray-400 mt-1">Content → Offer</div>
+                            <div className="text-xs text-yellow-400 mt-2">2-3% convert</div>
+                          </motion.button>
+
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, trafficStrategy: 'advertorial' }))
+                            }}
+                            className={`p-6 rounded-xl border-2 transition-all relative ${
+                              assessmentData.trafficStrategy === 'advertorial'
+                                ? 'border-green-500 bg-green-500/20'
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            <div className="absolute top-2 right-2 text-xs text-green-400">🔥 Hot</div>
+                            <div className="text-2xl mb-2">😍</div>
+                            <div className="font-medium text-sm">Advertorial</div>
+                            <div className="text-xs text-gray-400 mt-1">Story → Value → Offer</div>
+                            <div className="text-xs text-green-400 mt-2">5-8% convert</div>
+                          </motion.button>
+                        </div>
+                      </div>
+
+                      {/* The Aha Moment */}
+                      {assessmentData.trafficStrategy && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="space-y-4"
+                        >
+                          {/* Visual Flow Diagram */}
+                          <div className="p-6 bg-dark-400/50 rounded-xl border border-gray-700">
+                            <h3 className="font-bold mb-4">The Advertorial Strategy in Action:</h3>
+                            <div className="space-y-3">
+                              {assessmentData.trafficStrategy === 'direct' && (
+                                <div className="flex items-center gap-4">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="px-3 py-1 bg-red-500/20 border border-red-500 rounded-lg text-sm">
+                                        Cold Traffic
+                                      </span>
+                                      <span>→</span>
+                                      <span className="px-3 py-1 bg-red-500/20 border border-red-500 rounded-lg text-sm">
+                                        "BUY NOW!"
+                                      </span>
+                                      <span>→</span>
+                                      <span className="text-red-400 font-bold">0.5% buy</span>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-2">
+                                      You're asking strangers to marry you on the first date!
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+
+                              {assessmentData.trafficStrategy === 'warm' && (
+                                <div className="flex items-center gap-4">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="px-3 py-1 bg-yellow-500/20 border border-yellow-500 rounded-lg text-sm">
+                                        Cold Traffic
+                                      </span>
+                                      <span>→</span>
+                                      <span className="px-3 py-1 bg-yellow-500/20 border border-yellow-500 rounded-lg text-sm">
+                                        Helpful Content
+                                      </span>
+                                      <span>→</span>
+                                      <span className="px-3 py-1 bg-yellow-500/20 border border-yellow-500 rounded-lg text-sm">
+                                        Soft Pitch
+                                      </span>
+                                      <span>→</span>
+                                      <span className="text-yellow-400 font-bold">2-3% buy</span>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-2">
+                                      Better! You're building trust before asking for the sale.
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+
+                              {assessmentData.trafficStrategy === 'advertorial' && (
+                                <div className="flex items-center gap-4">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="px-3 py-1 bg-green-500/20 border border-green-500 rounded-lg text-sm">
+                                        Cold Traffic
+                                      </span>
+                                      <span>→</span>
+                                      <span className="px-3 py-1 bg-green-500/20 border border-green-500 rounded-lg text-sm">
+                                        Story/Problem
+                                      </span>
+                                      <span>→</span>
+                                      <span className="px-3 py-1 bg-green-500/20 border border-green-500 rounded-lg text-sm">
+                                        Solution
+                                      </span>
+                                      <span>→</span>
+                                      <span className="px-3 py-1 bg-green-500/20 border border-green-500 rounded-lg text-sm">
+                                        Social Proof
+                                      </span>
+                                      <span>→</span>
+                                      <span className="px-3 py-1 bg-green-500/20 border border-green-500 rounded-lg text-sm">
+                                        Offer
+                                      </span>
+                                      <span>→</span>
+                                      <span className="text-green-400 font-bold">5-8% buy</span>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-2">
+                                      Perfect! This is the advertorial strategy - you warm them up with value before the pitch.
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Educational Insight */}
+                          <div className="p-4 bg-blue-500/10 border border-blue-500 rounded-xl">
+                            <p className="text-sm font-bold mb-2">💡 The Advertorial Secret:</p>
+                            <p className="text-sm text-gray-300">
+                              Just like magazine advertorials that look like articles but sell products,
+                              your landing page should <span className="text-white font-semibold">educate and build trust</span> before pitching.
+                              This is why blog-style landing pages often outperform traditional sales pages!
+                            </p>
+                          </div>
+
+                          {/* The Game-Changing Insight */}
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: 0.5 }}
+                            className="p-6 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500 rounded-xl"
+                          >
+                            <h3 className="font-bold text-lg mb-4 text-purple-400">
+                              🚀 The 2X Rule That Changes Everything
+                            </h3>
+                            <div className="grid md:grid-cols-2 gap-6">
+                              <div className="space-y-3">
+                                <div className="text-center p-4 bg-red-500/10 rounded-lg border border-red-500">
+                                  <p className="text-sm font-bold mb-2">Option A: Double Your Ad Spend</p>
+                                  <div className="text-3xl font-bold text-red-400 mb-2">£1000 → £2000</div>
+                                  <p className="text-xs text-gray-400">
+                                    If your conversion rate is 1%:<br/>
+                                    10 sales → 20 sales<br/>
+                                    <span className="text-red-400 font-semibold">Cost per sale stays the same</span>
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="space-y-3">
+                                <div className="text-center p-4 bg-green-500/10 rounded-lg border border-green-500">
+                                  <p className="text-sm font-bold mb-2">Option B: Double Your Conversion Rate</p>
+                                  <div className="text-3xl font-bold text-green-400 mb-2">1% → 2%</div>
+                                  <p className="text-xs text-gray-400">
+                                    Same £1000 budget:<br/>
+                                    10 sales → 20 sales<br/>
+                                    <span className="text-green-400 font-semibold">Cost per sale HALVES!</span>
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 p-3 bg-white/5 rounded-lg">
+                              <p className="text-sm text-center">
+                                <span className="font-bold text-white">The Insight:</span> {" "}
+                                {assessmentData.trafficStrategy === 'direct' ?
+                                  "You're trying Option A (throwing money at the problem). Switch to Option B (fix your conversion rate) by warming up traffic!" :
+                                assessmentData.trafficStrategy === 'warm' ?
+                                  "You're on the right track! Keep optimizing that conversion rate." :
+                                assessmentData.trafficStrategy === 'advertorial' ?
+                                  "Perfect! You understand that conversion optimization beats budget increases every time." :
+                                  "Most businesses default to Option A. The smart ones focus on Option B."
+                                }
+                              </p>
+                            </div>
+                          </motion.div>
+                        </motion.div>
+                      )}
+
+                      {/* Campaign Count Question */}
+                      <div>
+                        <p className="mb-3 font-medium">How many active campaigns are you running?</p>
+                        <div className="grid grid-cols-4 gap-3">
+                          {['1-2', '3-5', '6-10', '10+'].map((opt, i) => (
+                            <button
+                              key={opt}
+                              onClick={() => setAssessmentData(prev => ({
+                                ...prev, 
+                                campaignCount: i === 0 ? 1 : i === 1 ? 4 : i === 2 ? 8 : 15 
+                              }))}
+                              className={`p-3 rounded-lg border-2 transition-all ${
+                                assessmentData.campaignCount === (i === 0 ? 1 : i === 1 ? 4 : i === 2 ? 8 : 15)
+                                  ? 'border-accent bg-accent/20' 
+                                  : 'border-gray-600 hover:border-gray-500'
+                              }`}
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="mb-3 font-medium">Are your audiences overlapping?</p>
+                        <div className="grid grid-cols-3 gap-3">
+                          <button
+                            onClick={() => setAssessmentData(prev => ({ ...prev, audienceOverlap: false }))}
+                            className={`p-3 rounded-lg border-2 transition-all ${
+                              assessmentData.audienceOverlap === false 
+                                ? 'border-accent bg-accent/20' 
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            No overlap ✅
+                          </button>
+                          <button
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, audienceOverlap: true }))
+                              toast.warning('Your campaigns are competing!')
+                            }}
+                            className={`p-3 rounded-lg border-2 transition-all ${
+                              assessmentData.audienceOverlap === true 
+                                ? 'border-yellow-500 bg-yellow-500/20' 
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            Yes, overlapping 🥊
+                          </button>
+                          <button
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, audienceOverlap: true }))
+                            }}
+                            className="p-3 rounded-lg border-2 border-gray-600 hover:border-gray-500"
+                          >
+                            Not sure 🤷
+                          </button>
+                        </div>
+                        
+                        {assessmentData.audienceOverlap === true && (
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="mt-4 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg"
+                          >
+                            <p className="text-yellow-400 text-sm">
+                              🥊 Your audiences are fighting each other! This increases costs by 20-40%.
+                            </p>
+                          </motion.div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-8">
+                      <button
+                        onClick={() => setCurrentStep('conversions')}
+                        className="btn-secondary"
+                      >
+                        ← Back
+                      </button>
+                      
+                      <button
+                        onClick={() => setCurrentStep('followup')}
+                        disabled={assessmentData.campaignCount === null || assessmentData.audienceOverlap === null}
+                        className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Continue →
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Follow-up Systems - The Money Maker */}
+                {currentStep === 'followup' && (
+                  <motion.div
+                    key="followup"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="glass-card p-8"
+                  >
+                    <h2 className="text-2xl font-bold mb-6">
+                      ⏱️ The 5-Minute Rule
+                    </h2>
+
+                    <div className="space-y-6">
+                      {/* Speed to Lead Question */}
+                      <div className="text-center mb-6">
+                        <p className="text-lg mb-4">How quickly do you respond to new leads?</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, responseTime: '5min' }))
+                            }}
+                            className={`p-4 rounded-xl border-2 transition-all ${
+                              assessmentData.responseTime === '5min'
+                                ? 'border-green-500 bg-green-500/20'
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            <div className="text-2xl mb-2">⚡</div>
+                            <div className="font-medium text-sm">Under 5 mins</div>
+                            <div className="text-xs text-green-400 mt-1">391% more likely to convert</div>
+                          </motion.button>
+
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, responseTime: '1hour' }))
+                            }}
+                            className={`p-4 rounded-xl border-2 transition-all ${
+                              assessmentData.responseTime === '1hour'
+                                ? 'border-yellow-500 bg-yellow-500/20'
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            <div className="text-2xl mb-2">⏰</div>
+                            <div className="font-medium text-sm">Within 1 hour</div>
+                            <div className="text-xs text-yellow-400 mt-1">7x less likely to qualify</div>
+                          </motion.button>
+
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, responseTime: 'sameday' }))
+                            }}
+                            className={`p-4 rounded-xl border-2 transition-all ${
+                              assessmentData.responseTime === 'sameday'
+                                ? 'border-orange-500 bg-orange-500/20'
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            <div className="text-2xl mb-2">📅</div>
+                            <div className="font-medium text-sm">Same day</div>
+                            <div className="text-xs text-orange-400 mt-1">60% already gone cold</div>
+                          </motion.button>
+
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setAssessmentData(prev => ({ ...prev, responseTime: 'nextday' }))
+                            }}
+                            className={`p-4 rounded-xl border-2 transition-all ${
+                              assessmentData.responseTime === 'nextday'
+                                ? 'border-red-500 bg-red-500/20'
+                                : 'border-gray-600 hover:border-gray-500'
+                            }`}
+                          >
+                            <div className="text-2xl mb-2">😴</div>
+                            <div className="font-medium text-sm">Next day+</div>
+                            <div className="text-xs text-red-400 mt-1">90% lost forever</div>
+                          </motion.button>
+                        </div>
+                      </div>
+
+                      {/* The MIT/Harvard Study Revelation */}
+                      {assessmentData.responseTime && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="space-y-4"
+                        >
+                          {/* The Shocking Stats */}
+                          <div className={`p-6 rounded-xl border-2 ${
+                            assessmentData.responseTime === '5min' ? 'bg-green-500/10 border-green-500' :
+                            assessmentData.responseTime === '1hour' ? 'bg-yellow-500/10 border-yellow-500' :
+                            assessmentData.responseTime === 'sameday' ? 'bg-orange-500/10 border-orange-500' :
+                            'bg-red-500/10 border-red-500'
+                          }`}>
+                            <h3 className="font-bold text-lg mb-3">
+                              {assessmentData.responseTime === '5min' ? '🎉 You\'re in the top 1%!' :
+                               assessmentData.responseTime === '1hour' ? '⚠️ You\'re losing 7x the leads!' :
+                               assessmentData.responseTime === 'sameday' ? '😰 You\'re hemorrhaging money!' :
+                               '💸 This is why your ads "don\'t work"!'}
+                            </h3>
+                            <div className="space-y-2">
+                              <p className="text-sm">
+                                <span className="font-semibold">MIT/Harvard Study Results:</span>
+                              </p>
+                              <ul className="space-y-1 text-sm text-gray-300">
+                                <li className="flex items-start gap-2">
+                                  <span className={assessmentData.responseTime === '5min' ? 'text-green-400' : 'text-gray-500'}>•</span>
+                                  <span>Respond in 5 mins = <span className="font-bold text-white">391% more likely to convert</span></span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <span className={assessmentData.responseTime === '5min' ? 'text-gray-500' : 'text-yellow-400'}>•</span>
+                                  <span>After 10 mins = <span className="font-bold text-white">Odds drop by 400%</span></span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <span className={['sameday', 'nextday'].includes(assessmentData.responseTime) ? 'text-red-400' : 'text-gray-500'}>•</span>
+                                  <span>After 1 hour = <span className="font-bold text-white">You're basically burning money</span></span>
+                                </li>
+                              </ul>
+                            </div>
+                          </div>
+
+                          {/* The Cost Calculator */}
+                          <div className="p-6 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 rounded-xl border border-indigo-500">
+                            <h3 className="font-bold mb-4">💰 What This Means For Your Budget:</h3>
+                            <div className="space-y-3">
+                              <div className="p-3 bg-dark-400/50 rounded-lg">
+                                <p className="text-sm">If you spend <span className="font-bold text-white">£1000/month</span> on ads...</p>
+                                <div className="mt-2 text-xs text-gray-400">
+                                  {assessmentData.responseTime === '5min' ?
+                                    <span className="text-green-400">✅ You're maximizing every penny - well done!</span> :
+                                   assessmentData.responseTime === '1hour' ?
+                                    <span className="text-yellow-400">⚠️ You're wasting £700 - only £300 worth of leads convert</span> :
+                                   assessmentData.responseTime === 'sameday' ?
+                                    <span className="text-orange-400">😱 You're wasting £800+ - only £200 worth convert</span> :
+                                    <span className="text-red-400">💀 You're wasting £900+ - might as well light it on fire</span>
+                                  }
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Follow-up Systems */}
+                          <div>
+                            <p className="mb-3 font-medium">What follow-up systems do you have?</p>
+                            <div className="grid grid-cols-2 gap-3">
+                              {[
+                                { id: 'setter', label: 'Appointment Setter', icon: '🦸' },
+                                { id: 'crm', label: 'CRM Connected', icon: '🤖' },
+                                { id: 'automation', label: 'Email Automation', icon: '📧' },
+                                { id: 'sms', label: 'SMS Follow-up', icon: '📱' },
+                                { id: 'manual', label: 'Manual Only', icon: '😰' }
+                              ].map(system => (
+                                <button
+                                  key={system.id}
+                                  onClick={() => {
+                                    setAssessmentData(prev => ({
+                                      ...prev,
+                                      followupSystems: prev.followupSystems?.includes(system.id)
+                                        ? prev.followupSystems.filter(s => s !== system.id)
+                                        : [...(prev.followupSystems || []), system.id]
+                                    }))
+                                  }}
+                                  className={`p-3 rounded-lg border-2 transition-all flex items-center gap-2 ${
+                                    assessmentData.followupSystems?.includes(system.id)
+                                      ? 'border-accent bg-accent/20'
+                                      : 'border-gray-600 hover:border-gray-500'
+                                  }`}
+                                >
+                                  <span className="text-2xl">{system.icon}</span>
+                                  <span className="text-sm">{system.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* The Setter Insight */}
+                          {assessmentData.followupSystems?.includes('setter') && (
+                            <motion.div
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              className="p-4 bg-green-500/10 border border-green-500 rounded-xl"
+                            >
+                              <p className="text-sm font-bold mb-2">🦸 Smart Move - Appointment Setter!</p>
+                              <p className="text-sm text-gray-300">
+                                A dedicated appointment setter can <span className="text-green-400 font-bold">DOUBLE your conversion rates</span>!
+                                <span className="block mt-2">
+                                  They build rapport, handle objections, and qualify leads properly.
+                                  <span className="text-white font-semibold"> One good setter can handle 100+ leads/day and pay for themselves in week one!</span>
+                                </span>
+                              </p>
+                            </motion.div>
+                          )}
+
+                          {/* The Automation vs Human Insight */}
+                          {!assessmentData.followupSystems?.includes('setter') && !assessmentData.followupSystems?.includes('automation') && (
+                            <motion.div
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              className="p-4 bg-red-500/10 border border-red-500 rounded-xl"
+                            >
+                              <p className="text-sm font-bold mb-2">🚨 You're Missing the Secret Weapon!</p>
+                              <p className="text-sm text-gray-300">
+                                <span className="font-bold text-white">Option 1:</span> Hire an appointment setter = 2x conversion rate
+                                <span className="block mt-1">
+                                  <span className="font-bold text-white">Option 2:</span> Set up automation = 3x more leads contacted
+                                </span>
+                                <span className="block mt-2 text-yellow-400 font-semibold">
+                                  Best: Appointment setter + automation = 5x better results!
+                                </span>
+                              </p>
+                            </motion.div>
+                          )}
+
+                          {/* The Manual Only Warning */}
+                          {assessmentData.followupSystems?.includes('manual') &&
+                           !assessmentData.followupSystems?.includes('automation') &&
+                           !assessmentData.followupSystems?.includes('setter') && (
+                            <motion.div
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              className="p-4 bg-red-500/10 border border-red-500 rounded-xl"
+                            >
+                              <p className="text-sm font-bold mb-2">💀 This is Why Your Ads "Don't Work"</p>
+                              <p className="text-sm text-gray-300">
+                                You're trying to juggle leads yourself = missed calls, slow responses, inconsistent follow-up.
+                                <span className="block mt-2 text-white font-semibold">
+                                  Fix: Hire a £10/hour appointment setter and watch conversions DOUBLE overnight!
+                                </span>
+                              </p>
+                            </motion.div>
+                          )}
+                        </motion.div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between mt-8">
+                      <button
+                        onClick={() => setCurrentStep('campaigns')}
+                        className="btn-secondary"
+                      >
+                        ← Back
+                      </button>
+
+                      <button
+                        onClick={completeAssessment}
+                        disabled={!assessmentData.responseTime}
+                        className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Get My Results 🎯
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Results */}
+                {currentStep === 'results' && (
+                  <motion.div
+                    key="results"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="space-y-6"
+                  >
+                    {/* Health Score */}
+                    <div className="glass-card p-8 text-center">
+                      <h2 className="text-3xl font-bold mb-6">Your Campaign Health Score</h2>
+                      
+                      <div className="relative w-48 h-48 mx-auto mb-6">
+                        <svg className="w-48 h-48 transform -rotate-90">
+                          <circle
+                            cx="96"
+                            cy="96"
+                            r="88"
+                            stroke="rgba(255,255,255,0.1)"
+                            strokeWidth="16"
+                            fill="none"
+                          />
+                          <motion.circle
+                            cx="96"
+                            cy="96"
+                            r="88"
+                            stroke={
+                              assessmentData.scores.overall < 40 ? '#ff4444' :
+                              assessmentData.scores.overall < 70 ? '#ff9944' :
+                              '#44ff88'
+                            }
+                            strokeWidth="16"
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeDasharray={553}
+                            initial={{ strokeDashoffset: 553 }}
+                            animate={{ 
+                              strokeDashoffset: 553 - (553 * assessmentData.scores.overall / 100) 
+                            }}
+                            transition={{ duration: 1.5, ease: "easeOut" }}
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <motion.div
+                            className="text-5xl font-bold"
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ delay: 0.5, type: "spring" }}
+                          >
+                            {assessmentData.scores.overall}
+                          </motion.div>
+                        </div>
+                      </div>
+                      
+                      <p className="text-xl mb-2">
+                        {assessmentData.scores.overall < 40 ? 'Critical Condition 🚨' :
+                         assessmentData.scores.overall < 70 ? 'Needs Attention ⚠️' :
+                         'Good Foundation ✅'}
+                      </p>
+                      <p className="text-gray-400">
+                        {assessmentData.scores.overall < 40 ? 'Your campaigns need emergency care' :
+                         assessmentData.scores.overall < 70 ? 'Several issues limiting performance' :
+                         'Minor optimizations can boost results'}
+                      </p>
+                    </div>
+
+                    {/* Issues Found */}
+                    <div className="glass-card p-8">
+                      <h3 className="text-2xl font-bold mb-6">Issues Detected</h3>
+                      <div className="space-y-4">
+                        {assessmentData.issues.map((issue, i) => (
+                          <motion.div
+                            key={issue.id}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.1 }}
+                            className={`p-4 rounded-lg border-l-4 ${
+                              issue.severity === 'critical' ? 'border-red-500 bg-red-500/10' :
+                              issue.severity === 'warning' ? 'border-yellow-500 bg-yellow-500/10' :
+                              'border-blue-500 bg-blue-500/10'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <h4 className="font-bold mb-1">{issue.title}</h4>
+                                <p className="text-sm text-gray-400 mb-2">{issue.impact}</p>
+                                {issue.quickFix && (
+                                  <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">
+                                    Quick fix available on call
+                                  </span>
+                                )}
+                              </div>
+                              {issue.estimatedSavings && (
+                                <div className="text-right">
+                                  <p className="text-sm text-gray-400">Est. waste</p>
+                                  <p className="font-bold">£{issue.estimatedSavings}/mo</p>
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                      
+                      {assessmentData.issues.length > 0 && (
+                        <div className="mt-6 p-4 bg-accent/10 border border-accent/30 rounded-lg">
+                          <p className="font-bold mb-1">
+                            Total Potential Savings: £{assessmentData.issues.reduce((sum, issue) => sum + (issue.estimatedSavings || 0), 0)}/month
+                          </p>
+                          <p className="text-sm text-gray-400">
+                            We can fix {assessmentData.issues.filter(i => i.quickFix).length} of these issues on your free consultation call!
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Recommendations */}
+                    <div className="glass-card p-8">
+                      <h3 className="text-2xl font-bold mb-6">Your Personalized Solution</h3>
+                      
+                      <div className="grid md:grid-cols-3 gap-4">
+                        {/* Always show all three packages but highlight the recommended one */}
+                        {[
+                          {
+                            name: 'Campaign Recovery',
+                            price: '£295',
+                            recommended: assessmentData.scores.overall < 40,
+                            features: [
+                              'Fix infrastructure issues',
+                              'Repair pixel tracking',
+                              'Consolidate campaigns',
+                              '7-day monitoring'
+                            ]
+                          },
+                          {
+                            name: 'Complete Rebuild',
+                            price: '£495',
+                            recommended: assessmentData.scores.overall >= 40 && assessmentData.scores.overall < 70,
+                            features: [
+                              'Fresh Business Manager',
+                              'Conversion ladder system',
+                              'Landing page included',
+                              '14-day optimization'
+                            ]
+                          },
+                          {
+                            name: 'Profit Engine',
+                            price: '£995',
+                            recommended: assessmentData.scores.overall >= 70,
+                            features: [
+                              'Complete funnel build',
+                              '90-min strategy session',
+                              'Landing page + FB page',
+                              '30-day support'
+                            ]
+                          }
+                        ].map((pkg, i) => (
+                          <motion.div
+                            key={pkg.name}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.3 + i * 0.1 }}
+                            className={`p-6 rounded-lg border-2 ${
+                              pkg.recommended 
+                                ? 'border-accent bg-accent/10' 
+                                : 'border-gray-600'
+                            }`}
+                          >
+                            {pkg.recommended && (
+                              <div className="mb-2 text-xs bg-accent text-dark-400 px-2 py-1 rounded inline-block font-bold">
+                                RECOMMENDED
+                              </div>
+                            )}
+                            <h4 className="text-xl font-bold mb-2">{pkg.name}</h4>
+                            <p className="text-2xl font-bold gradient-text mb-4">{pkg.price}</p>
+                            <ul className="space-y-2 text-sm">
+                              {pkg.features.map(feature => (
+                                <li key={feature} className="flex items-start gap-2">
+                                  <span className="text-accent">✓</span>
+                                  <span>{feature}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Call to Action */}
+                    <div className="glass-card p-8 text-center">
+                      <h3 className="text-2xl font-bold mb-4">Ready to Fix These Issues?</h3>
+                      <p className="text-gray-400 mb-6">
+                        Book your FREE 30-minute consultation where we'll fix quick wins LIVE and create your recovery plan
+                      </p>
+                      <button 
+                        onClick={() => setShowBookingModal(true)}
+                        className="btn-primary text-lg px-8 py-4"
+                      >
+                        Book My Free Consultation Call →
+                      </button>
+                      <p className="text-xs text-gray-500 mt-4">
+                        No payment required • We'll fix issues on the call • Get your personalized roadmap
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            </motion.section>
+          )}
+        </AnimatePresence>
+
+        {/* Additional Content Sections - Always visible */}
+        {!assessmentStarted && (
+          <>
+            {/* Video Section */}
+            <section className="py-20 px-4">
+              <div className="container max-w-6xl mx-auto">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  className="glass-card p-8 md:p-12"
+                >
+                  <h2 className="text-3xl md:text-4xl font-bold font-playfair text-center mb-4">
+                    First Aid for Ads: <span className="gradient-text">Bleed Less, Convert More</span>
+                  </h2>
+                  <p className="text-gray-300 text-center mb-8 max-w-3xl mx-auto">
+                    Watch this 15-minute strategy reveal where I expose the 3 hidden issues destroying 90% of campaigns, 
+                    plus the "Nuclear Truth" that will either make you mad... or completely transform your results.
+                  </p>
+                  
+                  <div className="aspect-video rounded-xl overflow-hidden mb-8 bg-dark-400">
+                    <iframe 
+                      className="w-full h-full"
+                      src="https://www.youtube.com/embed/LJmfPMGOg4Q?rel=0&modestbranding=1"
+                      title="First Aid for Ads Strategy Video"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
+
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-accent">✦</span>
+                      <span>The 3 hidden issues destroying 90% of campaigns</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-accent">✦</span>
+                      <span>Why good creative can't save bad infrastructure</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-accent">✦</span>
+                      <span>Simple fixes you can implement today</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-accent">✦</span>
+                      <span>The "Nuclear Truth" about service business budgets</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-accent">✦</span>
+                      <span>Strategic solution framework</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-accent">✦</span>
+                      <span>Why competitors are winning while you bleed money</span>
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+            </section>
+
+            {/* Services Section */}
+            <section className="py-20 px-4 bg-gradient-to-b from-transparent via-dark-200/50 to-transparent">
+              <div className="container max-w-6xl mx-auto">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  className="text-center mb-12"
+                >
+                  <h2 className="text-3xl md:text-4xl font-bold font-playfair mb-4">
+                    Your Path to <span className="gradient-text">Campaign Recovery</span>
+                  </h2>
+                  <p className="text-gray-300 max-w-2xl mx-auto">
+                    Start with your free diagnostic call, then choose your solution. 
+                    Every service includes complete Lead Balloon Platform setup and ongoing access.
+                  </p>
+                </motion.div>
+
+                <div className="grid md:grid-cols-3 gap-6">
+                  {/* Campaign Recovery */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: 0.1 }}
+                    className="glass-card p-6 relative group hover:border-accent/50 transition-all"
+                  >
+                    <div className="absolute top-4 right-4 bg-accent/20 text-accent px-3 py-1 rounded-full text-xs font-bold">
+                      NEXT LEVEL
+                    </div>
+                    <h3 className="text-2xl font-bold mb-2 mt-8">Campaign Recovery</h3>
+                    <div className="text-3xl font-bold gradient-text mb-1">£295</div>
+                    <p className="text-xs text-gray-400 mb-6">One-time setup + £95/mo platform</p>
+                    
+                    <ul className="space-y-3 mb-6 text-sm">
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Complete resolution of diagnostic issues</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Business Manager organization</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Pixel and conversion tracking repair</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Campaign overlap elimination</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>7-day monitoring & adjustments</span>
+                      </li>
+                    </ul>
+                    
+                    <button 
+                      onClick={() => setShowBookingModal(true)}
+                      className="w-full btn-primary"
+                    >
+                      Book Campaign Recovery
+                    </button>
+                  </motion.div>
+
+                  {/* Complete Rebuild */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: 0.2 }}
+                    className="glass-card p-6 relative group hover:border-accent/50 transition-all"
+                  >
+                    <div className="absolute top-4 right-4 bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-xs font-bold">
+                      PROFESSIONAL
+                    </div>
+                    <h3 className="text-2xl font-bold mb-2 mt-8">Complete Rebuild</h3>
+                    <div className="text-3xl font-bold gradient-text mb-1">£495</div>
+                    <p className="text-xs text-gray-400 mb-6">One-time setup + £95/mo platform</p>
+                    
+                    <ul className="space-y-3 mb-6 text-sm">
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Fresh Business Manager setup</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Modern pixel & domain config for 2025</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>AI-optimized audience architecture</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Advantage+ campaign structure</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>14-day optimization support</span>
+                      </li>
+                    </ul>
+                    
+                    <button 
+                      onClick={() => setShowBookingModal(true)}
+                      className="w-full btn-primary"
+                    >
+                      Book Complete Rebuild
+                    </button>
+                  </motion.div>
+
+                  {/* Profit Engine */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: 0.3 }}
+                    className="glass-card p-6 relative group hover:border-accent/50 transition-all border-accent/30"
+                  >
+                    <div className="absolute top-4 right-4 bg-gradient-to-r from-accent/30 to-accent-light/30 text-white px-3 py-1 rounded-full text-xs font-bold">
+                      PREMIUM
+                    </div>
+                    <h3 className="text-2xl font-bold mb-2 mt-8">Profit Engine</h3>
+                    <div className="text-3xl font-bold gradient-text mb-1">£995</div>
+                    <p className="text-xs text-gray-400 mb-6">One-time setup + £95/mo platform</p>
+                    
+                    <ul className="space-y-3 mb-6 text-sm">
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>90-minute strategy consultation</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Complete funnel build</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Lead magnet & nurture sequence</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Modern conversion psychology</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>30-day optimization support</span>
+                      </li>
+                    </ul>
+                    
+                    <button 
+                      onClick={() => setShowBookingModal(true)}
+                      className="w-full btn-primary"
+                    >
+                      Book Profit Engine
+                    </button>
+                  </motion.div>
+                </div>
+              </div>
+            </section>
+
+            {/* Platform Section */}
+            <section className="py-20 px-4">
+              <div className="container max-w-4xl mx-auto">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  className="glass-card p-8 md:p-12 border-accent/30"
+                >
+                  <div className="text-center mb-8">
+                    <span className="inline-block px-4 py-2 bg-accent/10 border border-accent/30 rounded-full text-sm mb-4">
+                      Lead Balloon Platform
+                    </span>
+                    <h2 className="text-3xl md:text-4xl font-bold font-playfair mb-4">
+                      Complete Business <span className="gradient-text">Infrastructure Solution</span>
+                    </h2>
+                    <p className="text-gray-300 max-w-2xl mx-auto">
+                      Every service includes setup on the Lead Balloon Platform - your complete business 
+                      operating system that replaces 6+ scattered tools and saves you £205+ monthly.
+                    </p>
+                  </div>
+
+                  <div className="grid md:grid-cols-3 gap-4 mb-8">
+                    <div className="text-center p-4 bg-dark-400/50 rounded-lg">
+                      <div className="text-xs text-gray-400 mb-1">Scattered Tools</div>
+                      <div className="text-2xl font-bold text-red-400 line-through">£300+/mo</div>
+                    </div>
+                    <div className="text-center p-4 flex items-center justify-center">
+                      <span className="text-2xl">VS</span>
+                    </div>
+                    <div className="text-center p-4 bg-accent/10 rounded-lg border border-accent/30">
+                      <div className="text-xs text-gray-400 mb-1">Lead Balloon Platform</div>
+                      <div className="text-2xl font-bold gradient-text">£95/mo</div>
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4 text-sm">
+                    <div className="flex items-start gap-2">
+                      <span className="text-accent mt-1">→</span>
+                      <span>Business phone + SMS system (saves £100/mo vs Twilio)</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-accent mt-1">→</span>
+                      <span>Complete CRM + pipeline (saves £50/mo vs HubSpot)</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-accent mt-1">→</span>
+                      <span>Booking calendars (saves £15/mo vs Calendly)</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-accent mt-1">→</span>
+                      <span>Email automation (saves £70/mo vs DRIP)</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-accent mt-1">→</span>
+                      <span>Landing pages + funnels (saves £150/mo vs ClickFunnels)</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-accent mt-1">→</span>
+                      <span>WhatsApp integration (saves £50/mo vs Shopify)</span>
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+            </section>
+
+            {/* Platform Only Option */}
+            <section className="py-20 px-4">
+              <div className="container max-w-xl mx-auto">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  className="glass-card p-8 text-center"
+                >
+                  <h3 className="text-2xl md:text-3xl font-bold font-playfair mb-4">
+                    Just Want <span className="gradient-text">Platform Access?</span>
+                  </h3>
+                  <p className="text-gray-300 mb-8 text-lg">
+                    Get direct access to the Lead Balloon Platform without any setup services.
+                  </p>
+                  
+                  <div className="bg-gradient-to-br from-dark-100 to-dark-200 rounded-xl p-6 border border-accent/30">
+                    <div className="inline-block px-3 py-1 bg-accent/20 text-accent rounded-full text-xs font-bold mb-4">
+                      PLATFORM ONLY
+                    </div>
+                    <h4 className="text-xl font-bold mb-2">Lead Balloon Platform</h4>
+                    <div className="text-3xl font-bold gradient-text mb-1">£95</div>
+                    <p className="text-xs text-gray-400 mb-6">Monthly subscription only</p>
+                    
+                    <ul className="space-y-2 mb-6 text-sm text-left max-w-sm mx-auto">
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Complete business phone + SMS system</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Full CRM + pipeline management</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Booking calendars + scheduling</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Email marketing + automation</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>Landing pages + funnel builder</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-accent mt-1">✓</span>
+                        <span>WhatsApp Business integration</span>
+                      </li>
+                    </ul>
+                    
+                    <button 
+                      onClick={() => setShowBookingModal(true)}
+                      className="w-full btn-primary"
+                    >
+                      Get Platform Access
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            </section>
+
+            {/* Testimonials Section - Proper Glass Morphism Carousel */}
+            <section className="py-20 px-4 bg-gradient-to-b from-transparent via-dark-200/50 to-transparent">
+              <div className="container max-w-6xl mx-auto">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  className="text-center mb-12"
+                >
+                  <h2 className="text-3xl md:text-5xl font-bold font-playfair mb-4">
+                    What Our <span className="gradient-text">Clients Say</span>
+                  </h2>
+                  <p className="text-gray-300 max-w-2xl mx-auto text-lg">
+                    Real testimonials from satisfied clients
+                  </p>
+                </motion.div>
+
+                <ReviewCarousel />
+              </div>
+            </section>
+
+            {/* Final CTA Section */}
+            <section className="py-20 px-4">
+              <div className="container max-w-4xl mx-auto">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  whileInView={{ opacity: 1, scale: 1 }}
+                  viewport={{ once: true }}
+                  className="glass-card p-8 md:p-12 text-center border-accent/30"
+                >
+                  <h2 className="text-3xl md:text-4xl font-bold font-playfair mb-4">
+                    Ready to Stop <span className="gradient-text">Bleeding Money?</span>
+                  </h2>
+                  <p className="text-gray-300 mb-8 max-w-2xl mx-auto">
+                    Get your free 30-minute diagnostic call and discover exactly what's 
+                    killing your campaigns. No fluff, just solutions.
+                  </p>
+                  <button 
+                    onClick={() => setShowBookingModal(true)}
+                    className="btn-primary text-lg px-8 py-4"
+                  >
+                    Book Your Free Diagnostic Call →
+                  </button>
+                  <p className="text-xs text-gray-500 mt-4">
+                    Limited spots available • No obligation • Results guaranteed
+                  </p>
+                </motion.div>
+              </div>
+            </section>
+
+            {/* Footer */}
+            <footer className="py-12 px-4 border-t border-gray-800">
+              <div className="container max-w-6xl mx-auto">
+                <div className="grid md:grid-cols-4 gap-8 mb-8">
+                  <div>
+                    <h3 className="font-bold mb-4 gradient-text">First Aid For Ads</h3>
+                    <p className="text-sm text-gray-400">
+                      Stop bleeding money on Facebook Ads. Get your campaigns fixed fast.
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-semibold mb-4">Quick Links</h4>
+                    <ul className="space-y-2 text-sm text-gray-400">
+                      <li><Link href="/" className="hover:text-accent transition">Assessment</Link></li>
+                      <li><Link href="/knowledge" className="hover:text-accent transition">Knowledge Base</Link></li>
+                      <li><Link href="/learn" className="hover:text-accent transition">Learning Center</Link></li>
+                      <li><Link href="/admin" className="hover:text-accent transition">Admin</Link></li>
+                    </ul>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-semibold mb-4">Services</h4>
+                    <ul className="space-y-2 text-sm text-gray-400">
+                      <li>Campaign Recovery</li>
+                      <li>Complete Rebuild</li>
+                      <li>Profit Engine</li>
+                      <li>Platform Access</li>
+                    </ul>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-semibold mb-4">Contact</h4>
+                    <ul className="space-y-2 text-sm text-gray-400">
+                      <li>📞 01223 752200</li>
+                      <li>📧 support@firstaidforads.com</li>
+                      <li>📍 Peterborough, UK</li>
+                    </ul>
+                  </div>
+                </div>
+                
+                <div className="pt-8 border-t border-gray-800 flex flex-col md:flex-row justify-between items-center gap-4">
+                  <p className="text-sm text-gray-500">
+                    © 2025 First Aid For Ads. All rights reserved.
+                  </p>
+                  <div className="flex gap-6 text-sm text-gray-500">
+                    <Link href="/privacy" className="hover:text-accent transition">Privacy Policy</Link>
+                    <Link href="/terms" className="hover:text-accent transition">Terms of Service</Link>
+                  </div>
+                </div>
+              </div>
+            </footer>
+          </>
+        )}
+      </main>
+      
+      {/* Booking Modal */}
+      <BookingModal 
+        isOpen={showBookingModal}
+        onClose={() => setShowBookingModal(false)}
+      />
+    </div>
+  )
+}
+
+export default HomePage

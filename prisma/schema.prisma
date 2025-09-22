@@ -1,0 +1,388 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id               String           @id @default(cuid())
+  email            String           @unique
+  name             String?
+  role             UserRole         @default(USER)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  
+  assessments      Assessment[]
+  pixelEvents      PixelEvent[]
+  learningProgress LearningProgress[]
+  campaigns        Campaign[]
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+model Assessment {
+  id               String           @id @default(cuid())
+  userId           String
+  user             User             @relation(fields: [userId], references: [id])
+  
+  // Assessment answers
+  setup            String
+  performance      String
+  ownership        String
+  budget           String
+  
+  // Calculated results
+  healthScore      Int
+  issues           Json
+  recommendations  Json
+  
+  // Tracking
+  completedAt      DateTime         @default(now())
+  ipAddress        String?
+  userAgent        String?
+  
+  // Follow-up
+  followUpStatus   FollowUpStatus   @default(PENDING)
+  notes            String?
+  
+  @@index([userId])
+  @@index([completedAt])
+}
+
+enum FollowUpStatus {
+  PENDING
+  CONTACTED
+  CONVERTED
+  LOST
+}
+
+model PixelEvent {
+  id               String           @id @default(cuid())
+  userId           String
+  user             User             @relation(fields: [userId], references: [id])
+  
+  eventType        String           // PageView, ViewContent, AddToCart, InitiateCheckout, Purchase, Lead, CompleteRegistration, StartAssessment, CompleteAssessment
+  eventValue       Float?
+  currency         String?
+  contentName      String?
+  contentCategory  String?
+  contentIds       Json?
+  
+  // Pixel seasoning tracking
+  pixelId          String?
+  campaignId       String?
+  adsetId          String?
+  adId             String?
+  
+  timestamp        DateTime         @default(now())
+  
+  @@index([userId])
+  @@index([eventType])
+  @@index([timestamp])
+}
+
+model Campaign {
+  id               String           @id @default(cuid())
+  userId           String
+  user             User             @relation(fields: [userId], references: [id])
+  
+  name             String
+  status           CampaignStatus   @default(DRAFT)
+  objective        String
+  budget           Float
+  
+  // Pixel seasoning strategy
+  seasoningPhase   SeasoningPhase   @default(INITIAL)
+  conversionCount  Int              @default(0)
+  learningComplete Boolean          @default(false)
+  
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  
+  adSets           AdSet[]
+  
+  @@index([userId])
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum SeasoningPhase {
+  INITIAL           // 0-10 conversions
+  LEARNING          // 10-50 conversions
+  OPTIMIZING        // 50-100 conversions
+  MATURE            // 100+ conversions
+}
+
+model AdSet {
+  id               String           @id @default(cuid())
+  campaignId       String
+  campaign         Campaign         @relation(fields: [campaignId], references: [id])
+  
+  name             String
+  targetingCriteria Json
+  dailyBudget      Float
+  
+  // Performance metrics
+  impressions      Int              @default(0)
+  clicks           Int              @default(0)
+  conversions      Int              @default(0)
+  spend            Float            @default(0)
+  
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  
+  @@index([campaignId])
+}
+
+model LearningProgress {
+  id               String           @id @default(cuid())
+  userId           String
+  user             User             @relation(fields: [userId], references: [id])
+  
+  moduleId         String
+  module           LearningModule   @relation(fields: [moduleId], references: [id])
+  
+  completed        Boolean          @default(false)
+  score            Int?
+  timeSpent        Int              @default(0) // in seconds
+  attempts         Int              @default(0)
+  
+  startedAt        DateTime         @default(now())
+  completedAt      DateTime?
+  
+  @@unique([userId, moduleId])
+  @@index([userId])
+}
+
+model LearningModule {
+  id               String           @id @default(cuid())
+  
+  title            String
+  description      String
+  category         ModuleCategory
+  difficulty       Difficulty
+  order            Int
+  
+  // Content
+  content          Json             // Rich content with text, videos, interactive elements
+  quiz             Json?            // Quiz questions if applicable
+  
+  // Requirements
+  prerequisiteIds  String[]
+  
+  estimatedMinutes Int
+  
+  progress         LearningProgress[]
+  
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  
+  @@index([category])
+  @@index([order])
+}
+
+enum ModuleCategory {
+  FUNDAMENTALS      // Basic concepts
+  OFFER_CREATION    // Creating winning offers
+  PIXEL_SETUP       // Pixel installation and seasoning
+  CAMPAIGN_STRUCTURE // Campaign architecture
+  AUDIENCE_TARGETING // Audience creation and targeting
+  CREATIVE_STRATEGY // Ad creative best practices
+  OPTIMIZATION      // Campaign optimization
+  SCALING           // Scaling successful campaigns
+  TROUBLESHOOTING   // Common issues and fixes
+}
+
+enum Difficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+model AdminSettings {
+  id               String           @id @default(cuid())
+  
+  // Platform settings
+  maintenanceMode  Boolean          @default(false)
+  signupsEnabled   Boolean          @default(true)
+  
+  // Default values
+  defaultPixelId   String?
+  defaultCurrency  String           @default("GBP")
+  
+  // Email notifications
+  adminEmails      String[]
+  sendNotifications Boolean         @default(true)
+  
+  updatedAt        DateTime         @updatedAt
+}
+
+model Feedback {
+  id               String           @id @default(cuid())
+  
+  type             FeedbackType
+  rating           Int?             // 1-5 stars for praise
+  message          String
+  email            String?
+  page             String           // Which page they were on
+  
+  // Metadata
+  userAgent        String?
+  sessionId        String?
+  ipAddress        String?
+  
+  // Status
+  status           FeedbackStatus   @default(NEW)
+  priority         Priority         @default(MEDIUM)
+  assignedTo       String?
+  
+  // Admin notes
+  internalNotes    String?
+  resolution       String?
+  
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  resolvedAt       DateTime?
+  
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum FeedbackType {
+  BUG
+  FEATURE
+  PRAISE
+  QUESTION
+}
+
+enum FeedbackStatus {
+  NEW
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  SPAM
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// AI Conversation Tracking for Learning
+model Conversation {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Session context
+  sessionId     String   @unique
+  domain        String
+  url           String?
+
+  // Site analysis results
+  pixelFound    Boolean
+  pixelIds      Json?    // Array of pixel IDs found
+  platform      String?  // Shopify, WordPress, etc.
+  businessType  String?
+
+  // Qualification data
+  whoseWebsite  String?  // mine, client, competitor, testing
+  monthlySpend  String?
+  mainProblem   String?
+  businessAge   String?
+  conversionsPerWeek String?
+
+  // Conversation
+  messages      Json     // Array of {role, content, timestamp}
+  messageCount  Int      @default(0)
+
+  // AI Performance
+  usedAI        Boolean  @default(false)
+  aiModel       String?  // claude-3-haiku, fallback, etc.
+
+  // Outcomes
+  qualified     Boolean  @default(false)
+  segment       String?  // hot, warm, cold
+  priority      Int?     // 1-5
+  bookedCall    Boolean  @default(false)
+  callType      String?  // mark_technical, kerry_trial
+
+  // Learning metrics
+  resolved      Boolean  @default(false)
+  satisfaction  Int?     // 1-5 rating
+  outcome       String?  // booked, abandoned, exploring, etc.
+
+  @@index([domain])
+  @@index([createdAt])
+  @@index([sessionId])
+  @@index([bookedCall])
+}
+
+// Knowledge learned from successful patterns
+model LearnedKnowledge {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Pattern identification
+  category      String   // pixel_issues, learning_limited, etc.
+  trigger       String   // What user said/situation
+  response      String   // What worked
+
+  // Effectiveness tracking
+  usageCount    Int      @default(0)
+  successCount  Int      @default(0)
+  successRate   Float    @default(0)
+  confidence    Float    @default(0.5) // 0-1
+
+  // Metadata
+  source        String?  // conversation ID that generated this
+  approved      Boolean  @default(false) // Manual approval
+  active        Boolean  @default(true)
+
+  @@index([category])
+  @@index([confidence])
+  @@index([active])
+}
+
+// Track which responses lead to bookings
+model ConversionPattern {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+
+  // Pattern details
+  scenario      String   // e.g., "no_pixel_spending_500+"
+  messageNumber Int      // Which message in sequence
+  userInput     String   // What they said
+  aiResponse    String   // What we responded
+
+  // Results
+  ledToBooking  Boolean
+  bookingType   String?  // mark_technical, kerry_trial
+  timeToBooking Int?     // Seconds from this message to booking
+
+  // Analytics
+  occurrences   Int      @default(1)
+  bookingRate   Float    @default(0)
+
+  @@index([scenario])
+  @@index([ledToBooking])
+  @@index([bookingRate])
+}

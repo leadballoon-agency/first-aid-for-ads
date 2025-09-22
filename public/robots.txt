@@ -1,0 +1,8 @@
+# Robots.txt for First Aid For Ads
+# Allow all web crawlers
+
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://firstaidforads.com/sitemap.xml

@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-inter: 'Inter', sans-serif;
+    --font-playfair: 'Playfair Display', serif;
+  }
+  
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply bg-gradient-to-br from-dark-400 via-dark-200 to-dark-300 text-white min-h-screen;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/5 backdrop-blur-xl border border-accent/20 rounded-2xl;
+  }
+  
+  .btn-primary {
+    @apply bg-gradient-to-r from-accent to-accent-light text-dark-400 font-semibold py-3 px-6 rounded-lg hover:shadow-lg hover:shadow-accent/30 transition-all duration-300 hover:-translate-y-0.5;
+  }
+  
+  .btn-secondary {
+    @apply bg-transparent border-2 border-white/30 text-white font-semibold py-3 px-6 rounded-lg hover:border-accent hover:bg-accent/10 transition-all duration-300;
+  }
+  
+  .progress-ring {
+    @apply stroke-accent;
+    stroke-linecap: round;
+    animation: progress 1s ease-out forwards;
+  }
+  
+  @keyframes progress {
+    from {
+      stroke-dashoffset: 408;
+    }
+  }
+  
+  .floating-element {
+    @apply absolute rounded-full bg-accent/30 blur-xl animate-float;
+  }
+  
+  .education-card {
+    @apply glass-card p-6 hover:border-accent/40 transition-all duration-300 hover:transform hover:scale-[1.02];
+  }
+  
+  .pixel-tracker {
+    @apply fixed bottom-4 right-4 bg-dark-100/90 backdrop-blur-lg border border-accent/30 rounded-lg p-4 text-sm max-w-xs;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  .animate-pulse-slow {
+    animation: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  .gradient-text {
+    @apply bg-gradient-to-r from-accent to-accent-light bg-clip-text text-transparent;
+  }
+  
+  .shadow-glow {
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+  }
+}
+
+/* Animated blob background */
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+.animate-blob {
+  animation: blob 7s infinite;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
+}

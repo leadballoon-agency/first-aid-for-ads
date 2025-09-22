@@ -337,7 +337,7 @@ export default function LearnPage() {
               <div className="text-right">
                 <p className="text-sm text-gray-400">Your Progress</p>
                 <p className="text-xl font-bold gradient-text">
-                  {Object.keys(progress).length} / {Object.values(educationModules).flatMap(c => c.modules).length} Modules
+                  {Object.keys(progress).length} / {Object.values(educationModules).flatMap(c => (c as any).modules).length} Modules
                 </p>
               </div>
             </div>

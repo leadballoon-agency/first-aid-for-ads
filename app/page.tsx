@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import toast, { Toaster } from 'react-hot-toast'
 import IntroStep from '../components/assessment/IntroStep'
 import AnalyzeStep from '../components/assessment/AnalyzeStep'
@@ -8,6 +8,7 @@ import QualificationStep from '../components/assessment/QualificationStep'
 import AIChatInterface from '../components/assessment/AIChatInterface'
 import FeedbackWidget from '../components/FeedbackWidget'
 import { AssessmentData, AssessmentStep, Issue } from '../components/assessment/types'
+import { trackEvent, trackStartAssessment, trackLead, trackCompleteAssessment } from '../components/Analytics'
 
 export default function HomePage() {
   const initialAssessmentData: AssessmentData = {
@@ -102,6 +103,12 @@ export default function HomePage() {
 
       setSiteAnalysis(analysis)
 
+      // Track URL submission
+      trackEvent('Search', {
+        search_string: formattedUrl,
+        pixel_found: analysis.pixelFound
+      })
+
       if (!analysis.pixelFound) {
         toast.error('No pixel found - we\'ll help you fix that!', { duration: 4000 })
       } else if (analysis.multiplePixels) {
@@ -137,7 +144,23 @@ export default function HomePage() {
     const currentIndex = steps.indexOf(currentStep)
 
     if (currentIndex < steps.length - 1) {
-      setCurrentStep(steps[currentIndex + 1] as AssessmentStep)
+      const nextStep = steps[currentIndex + 1]
+      setCurrentStep(nextStep as AssessmentStep)
+
+      // Track progression events
+      if (nextStep === 'analyze') {
+        trackStartAssessment()
+      } else if (nextStep === 'ai-chat') {
+        trackCompleteAssessment()
+        // Track as lead when reaching AI chat
+        trackLead()
+      }
+
+      // Track step progression
+      trackEvent('ViewContent', {
+        content_name: `Assessment Step: ${nextStep}`,
+        content_category: 'assessment'
+      })
     }
   }
 

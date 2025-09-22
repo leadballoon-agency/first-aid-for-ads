@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { Inter, Playfair_Display } from 'next/font/google'
 import { Toaster } from 'react-hot-toast'
 import FeedbackWidget from '@/components/FeedbackWidget'
+import Analytics from '@/components/Analytics'
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -33,6 +34,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} ${playfair.variable} font-sans`}>
+        <Analytics />
         {children}
         <FeedbackWidget />
         <Toaster 

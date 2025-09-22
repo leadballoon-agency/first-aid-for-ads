@@ -472,7 +472,7 @@ function extractCTAs(html: string) {
   // Check for urgency/scarcity words
   const urgencyPatterns = /limited|today|now|hurry|last chance|ends|only|left|remaining|sale/gi
   const urgencyMatches = html.match(urgencyPatterns) || []
-  ctaInfo.urgencyWords = [...new Set(urgencyMatches.map(w => w.toLowerCase()))]
+  ctaInfo.urgencyWords = Array.from(new Set(urgencyMatches.map(w => w.toLowerCase())))
 
   // Check for forms
   ctaInfo.hasForm = /<form/i.test(html)

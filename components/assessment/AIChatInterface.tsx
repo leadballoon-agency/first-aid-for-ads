@@ -41,11 +41,11 @@ export default function AIChatInterface({
           businessType: siteAnalysis?.businessInfo?.businessType,
 
           // Qualification data
-          whoseWebsite: assessmentData.qualification?.whose_website,
-          monthlySpend: assessmentData.qualification?.monthly_spend,
-          mainProblem: assessmentData.qualification?.main_problem,
-          businessAge: assessmentData.qualification?.business_age,
-          conversionsPerWeek: assessmentData.qualification?.conversions_per_week,
+          whoseWebsite: (assessmentData as any).qualification?.whose_website,
+          monthlySpend: (assessmentData as any).qualification?.monthly_spend,
+          mainProblem: (assessmentData as any).qualification?.main_problem,
+          businessAge: (assessmentData as any).qualification?.business_age,
+          conversionsPerWeek: (assessmentData as any).qualification?.conversions_per_week,
 
           // Conversation data
           messages: messages.map(m => ({ role: m.role, content: m.content })),
@@ -54,8 +54,8 @@ export default function AIChatInterface({
 
           // Outcomes
           qualified: qualified?.trialEligible || false,
-          segment: assessmentData.segment,
-          priority: assessmentData.priority,
+          segment: (assessmentData as any).segment,
+          priority: (assessmentData as any).priority,
           bookedCall,
           callType: data?.callType,
 
@@ -96,7 +96,7 @@ export default function AIChatInterface({
         body: JSON.stringify({
           messages: [],
           siteAnalysis,
-          qualificationData: assessmentData.qualification,
+          qualificationData: (assessmentData as any).qualification,
           isFirstMessage: true
         })
       })
@@ -130,7 +130,7 @@ export default function AIChatInterface({
   }
 
   const getSmartFallbackMessage = () => {
-    const { qualification } = assessmentData
+    const { qualification } = assessmentData as any
     
     if (!siteAnalysis?.pixelFound) {
       return "I see you're running Facebook Ads without a Pixel installed. That's like driving blindfolded - you're wasting at least 40% of your ad spend. Let's fix this. What's been your biggest frustration with Facebook Ads?"
@@ -168,7 +168,7 @@ export default function AIChatInterface({
         body: JSON.stringify({
           messages: [...messages, userMessage],
           siteAnalysis,
-          qualificationData: assessmentData.qualification,
+          qualificationData: (assessmentData as any).qualification,
           isFirstMessage: false
         })
       })

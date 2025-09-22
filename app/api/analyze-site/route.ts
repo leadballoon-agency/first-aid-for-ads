@@ -567,7 +567,7 @@ function extractContactInfo(html: string, domain: string, enhancedData: any = {}
   
   // Filter out common non-contact emails and duplicates
   const excludePatterns = ['example.com', 'email.com', 'domain.com', 'sentry.io', 'jquery', 'bootstrap']
-  info.emails = [...new Set(emailMatches)]
+  info.emails = Array.from(new Set(emailMatches))
     .filter(email => {
       const lower = email.toLowerCase()
       return !excludePatterns.some(pattern => lower.includes(pattern)) &&

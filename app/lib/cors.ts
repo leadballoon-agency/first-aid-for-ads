@@ -18,27 +18,21 @@ export function corsHeaders(origin?: string | null) {
   }
 }
 
-export function handleCors(request: NextRequest) {
+export function handleCors(request: NextRequest): NextResponse {
   const origin = request.headers.get('origin')
 
-  // Handle preflight requests
-  if (request.method === 'OPTIONS') {
-    return new NextResponse(null, {
-      status: 200,
-      headers: corsHeaders(origin),
-    })
-  }
-
-  return corsHeaders(origin)
+  // Always return NextResponse for OPTIONS
+  return new NextResponse(null, {
+    status: 200,
+    headers: corsHeaders(origin),
+  })
 }
 
 export function createCorsResponse(data: any, status = 200, request: NextRequest) {
-  const headers = handleCors(request)
+  const origin = request.headers.get('origin')
 
   return NextResponse.json(data, {
     status,
-    headers: typeof headers === 'object' && 'Access-Control-Allow-Origin' in headers
-      ? headers
-      : corsHeaders(request.headers.get('origin')),
+    headers: corsHeaders(origin),
   })
 }

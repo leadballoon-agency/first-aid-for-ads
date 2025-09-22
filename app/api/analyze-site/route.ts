@@ -435,7 +435,7 @@ function extractCTAs(html: string) {
   const foundCTAs = new Set<string>()
 
   for (const pattern of buttonPatterns) {
-    const matches = html.matchAll(pattern)
+    const matches = Array.from(html.matchAll(pattern))
     for (const match of matches) {
       const cta = match[1].trim()
       if (cta.length > 2 && cta.length < 50 && !cta.includes('<')) {

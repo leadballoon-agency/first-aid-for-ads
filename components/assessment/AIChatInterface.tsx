@@ -195,12 +195,9 @@ export default function AIChatInterface({
 
       setMessages(prev => [...prev, aiMessage])
 
-      // Only check qualification after meaningful conversation (at least 8-10 messages)
-      // This ensures the AI has time to build value and understand their needs
-      if (messageCount >= 8 && data.qualified && data.qualified.trialEligible) {
-        setQualified(data.qualified)
-      } else if (messageCount >= 6 && data.qualified && data.qualified.offerLandingPage) {
-        // Show landing page offer for those without pixel after moderate conversation
+      // Show qualification when AI determines it's contextually appropriate
+      // Based on conversation quality, problem identification, and natural flow
+      if (data.qualified && data.readyToBook) {
         setQualified(data.qualified)
       }
     } catch (error) {
@@ -249,7 +246,7 @@ export default function AIChatInterface({
           </div>
 
           {/* Only show qualification status after meaningful conversation */}
-          {messageCount >= 8 && qualified?.trialEligible && (
+          {qualified?.trialEligible && qualified?.readyToBook && (
             <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
               <p className="text-emerald-400 text-sm font-medium">
                 ✅ You qualify for Kerry's 7-day risk-free trial!
@@ -341,8 +338,8 @@ export default function AIChatInterface({
       </div>
 
       {/* Book a Call CTA with Kerry's Calendar */}
-      {/* Only show after meaningful conversation (at least 3 user messages) */}
-      {messageCount >= 8 && qualified?.trialEligible && (
+      {/* Show when conversation naturally leads to booking */}
+      {qualified?.trialEligible && qualified?.readyToBook && (
         <div className="mt-8">
           {/* Hero Section */}
           <div className="relative overflow-hidden rounded-t-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-cyan-500 p-8 text-center">
@@ -397,7 +394,7 @@ export default function AIChatInterface({
       )}
 
       {/* Emergency Pixel Fix CTA for those without pixel */}
-      {messageCount >= 6 && qualified?.offerLandingPage && (
+      {qualified?.offerLandingPage && qualified?.readyToBook && (
         <div className="mt-8">
           {/* Hero Section */}
           <div className="relative overflow-hidden rounded-t-2xl bg-gradient-to-br from-red-600 via-orange-500 to-amber-500 p-8 text-center">
@@ -473,7 +470,7 @@ export default function AIChatInterface({
       )}
 
       {/* Mark's Technical Triage CTA - for setup/tracking issues */}
-      {messageCount >= 6 && qualified?.offerTriage && (
+      {qualified?.offerTriage && qualified?.readyToBook && (
         <div className="mt-8">
           {/* Hero Section */}
           <div className="relative overflow-hidden rounded-t-2xl bg-gradient-to-br from-blue-600 via-indigo-500 to-purple-500 p-8 text-center">
@@ -544,7 +541,7 @@ export default function AIChatInterface({
       )}
 
       {/* Competitive Intelligence CTA - for beating competitors */}
-      {messageCount >= 5 && qualified?.offerCompetitive && (
+      {qualified?.offerCompetitive && qualified?.readyToBook && (
         <div className="mt-8">
           {/* Hero Section */}
           <div className="relative overflow-hidden rounded-t-2xl bg-gradient-to-br from-yellow-600 via-orange-500 to-red-500 p-8 text-center">
@@ -623,7 +620,7 @@ export default function AIChatInterface({
 
       {/* Alternative CTA for non-qualified leads */}
       {/* Show after conversation develops but they don't qualify for trial */}
-      {messageCount >= 7 && !qualified?.trialEligible && !qualified?.offerLandingPage && !qualified?.offerTriage && !qualified?.offerCompetitive && (
+      {qualified?.readyToBook && !qualified?.trialEligible && !qualified?.offerLandingPage && !qualified?.offerTriage && !qualified?.offerCompetitive && (
         <div className="mt-8">
           {/* Hero Section */}
           <div className="relative overflow-hidden rounded-t-2xl bg-gradient-to-br from-slate-700 via-slate-600 to-slate-700 p-8 text-center">

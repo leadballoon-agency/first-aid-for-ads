@@ -34,9 +34,18 @@ export async function POST(request: NextRequest) {
     if (!CLAUDE_API_KEY) {
       console.warn('⚠️ Claude API key not configured')
       // Fallback to rule-based responses
+      const fallbackResponse = generateFallbackResponse(messages, siteAnalysis, qualificationData, isFirstMessage)
+      const qualified = checkQualification(qualificationData, siteAnalysis)
+
+      // In fallback mode, show calendar after 6+ exchanges and clear problem identification
+      const messageCount = messages?.length || 0
+      if (qualified && messageCount >= 6) {
+        qualified.readyToBook = true
+      }
+
       return createCorsResponse({
-        response: generateFallbackResponse(messages, siteAnalysis, qualificationData, isFirstMessage),
-        qualified: checkQualification(qualificationData, siteAnalysis),
+        response: fallbackResponse,
+        qualified,
         isFallback: true, // Mark as fallback response
         debugInfo: 'No API key configured'
       }, 200, request)
@@ -109,8 +118,18 @@ export async function POST(request: NextRequest) {
     // Check if lead qualifies for 7-day trial
     const qualified = checkQualification(qualificationData, siteAnalysis)
 
+    // Check if AI indicates conversation is ready for booking
+    // AI will include [READY_TO_BOOK] signal when appropriate
+    const readyToBook = aiResponse.includes('[READY_TO_BOOK]')
+    const cleanResponse = aiResponse.replace('[READY_TO_BOOK]', '').trim()
+
+    // Add readyToBook flag to qualification
+    if (qualified) {
+      qualified.readyToBook = readyToBook
+    }
+
     return createCorsResponse({
-      response: aiResponse,
+      response: cleanResponse,
       qualified,
       trialEligible: qualified.trialEligible,
       reason: qualified.reason,
@@ -352,12 +371,13 @@ CONVERSATION FLOW - IMPORTANT:
    Priority 4: Poor ROAS but working = Kerry can optimize
    Priority 5: Working well = Offer competitive analysis
 
-3. KNOW WHEN TO BUILD VALUE BEFORE ROUTING:
-   - Have 4-5 meaningful exchanges MINIMUM before suggesting booking
-   - Build understanding of their specific situation first
-   - Give 2-3 actionable insights they can use immediately
-   - ONLY transition when you've clearly identified a problem we can solve
-   - Natural transition: "Based on what you've told me..."
+3. SMART BOOKING SIGNALS:
+   - Build value through conversation naturally (no message counting)
+   - When you've clearly identified a problem AND provided value
+   - When user expresses interest in solving their problem
+   - When conversation naturally reaches a solution point
+   - Add [READY_TO_BOOK] to your response when it's time (hidden from user)
+   - Keep conversations on-topic (Facebook Ads) - redirect if they go off-track
 
 4. ROUTING LOGIC:
    Technical Issues (No pixel, tracking broken) → Mark's 30-min call
@@ -365,11 +385,12 @@ CONVERSATION FLOW - IMPORTANT:
    Just exploring → Give value, soft CTA at end
 
 IMPORTANT RULES:
-- Build rapport first - understand their business before diagnosing
-- Provide genuine value in the conversation (3-4 actionable tips minimum)
-- Only suggest booking after 8+ messages when it's contextually appropriate
-- Focus on education and trust-building, not quick conversion
-- If they're engaged and asking questions, keep helping - don't rush to booking
+- Stay focused on Facebook Ads problems (redirect if off-topic)
+- Build value naturally through conversation
+- When ready to suggest booking, include [READY_TO_BOOK] in your response
+- Don't let conversations go in circles - guide toward resolution
+- If someone is clearly not serious or testing, politely wrap up
+- Maximum 10-12 exchanges before suggesting booking (avoid endless loops)
 
 AVOID RABBIT HOLES:
 - NO TECHNICAL LECTURES (they don't need a masterclass)
@@ -386,7 +407,7 @@ User: "About 3 months, spending £1000/month"
 Message 2: "That's £3000 spent blind. Quick math: without tracking, Facebook shows your ads to random people instead of buyers. You're probably wasting 60-70% of that. Here's a quick fix: Install the Facebook Pixel Helper Chrome extension to verify if you have any partial tracking."
 Message 3: "Let me help you understand the impact first. Without a pixel, you're missing critical data like which ads drive sales, what audiences convert, and how to retarget visitors. Have you noticed your cost per result keeps increasing?"
 Message 4: [Continue building value and understanding]
-Message 5+: [Only after real conversation] "Based on everything we've discussed, Mark could fix this in 30 minutes..."
+[When naturally ready]: "Based on everything we've discussed, Mark could fix this in 30 minutes... [READY_TO_BOOK]"
 
 SCENARIO 2 - Learning Limited (Perfect for Kerry):
 Message 1: "I see you're getting 10-50 conversions per week. What's your current cost per conversion?"
@@ -396,7 +417,7 @@ User: "Maybe 5%"
 Message 3: "That 5% conversion is actually costing you more than you think. Let's do the math together - what's your average customer value?"
 Message 4: [Explore their business model and pain points]
 Message 5: [Share specific strategies they could implement]
-Message 6+: [Only after building trust] "I've seen this exact pattern before. Kerry specializes in fixing this - she typically gets 15-20% conversion rates..."
+[When solution is clear]: "I've seen this exact pattern before. Kerry specializes in fixing this - she typically gets 15-20% conversion rates... [READY_TO_BOOK]"
 
 SCENARIO 3 - High-Value Questions in Action:
 Message 1: "What's the ONE thing that would need to change for you to double your revenue from Facebook Ads?"

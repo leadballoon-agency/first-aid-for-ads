@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 // Debug endpoint to test Claude API configuration
 // This should be removed before production!
+// Updated: 2025-09-23
 
 export async function GET(request: NextRequest) {
   const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY?.trim()

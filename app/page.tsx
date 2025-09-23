@@ -73,6 +73,34 @@ export default function HomePage() {
 
     setWebsiteUrl(formattedUrl)
 
+    // Check if they entered our own website (humor)
+    if (formattedUrl.toLowerCase().includes('firstaidforads')) {
+      setSiteAnalysis({
+        url: formattedUrl,
+        domain: 'firstaidforads.com',
+        pixelFound: true,
+        pixelIds: ['Nice try! 😉'],
+        multiplePixels: false,
+        businessInfo: {
+          type: 'Marketing Genius',
+          industry: 'Recursive Testing',
+          platform: 'Meta-Analysis'
+        },
+        contactInfo: {
+          emails: ['hello@recursion.com'],
+          phones: ['0800-INCEPTION']
+        },
+        message: "Very clever! Testing the tool on itself? That's some inception-level thinking. Our pixel is so well configured, it's achieved consciousness. But seriously, let's check YOUR website! 🎯",
+        loadTime: 0.42
+      })
+      setAnalyzing(false)
+      toast("We see what you did there! 😄 Now try your actual website!", {
+        icon: '🔄',
+        duration: 5000
+      })
+      return
+    }
+
     try {
       const response = await fetch('/api/analyze-site', {
         method: 'POST',

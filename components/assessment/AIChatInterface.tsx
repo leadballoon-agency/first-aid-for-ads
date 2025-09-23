@@ -103,9 +103,16 @@ export default function AIChatInterface({
 
       const data = await response.json()
 
+      // Debug logging
+      if (data.debugInfo) {
+        console.log('API Debug Info:', data.debugInfo)
+      }
+
       // Check if this is real AI or fallback
       if (!data.error && data.response && !data.isFallback) {
         setIsAIActive(true)
+      } else if (data.isFallback) {
+        console.warn('Using fallback mode. Reason:', data.debugInfo || 'Unknown')
       }
 
       setMessages([{

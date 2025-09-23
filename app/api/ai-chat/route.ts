@@ -26,7 +26,8 @@ export async function POST(request: NextRequest) {
       return createCorsResponse({
         response: generateFallbackResponse(messages, siteAnalysis, qualificationData, isFirstMessage),
         qualified: checkQualification(qualificationData, siteAnalysis),
-        isFallback: true // Mark as fallback response
+        isFallback: true, // Mark as fallback response
+        debugInfo: 'No API key configured'
       }, 200, request)
     }
 
@@ -65,9 +66,17 @@ export async function POST(request: NextRequest) {
     })
 
     if (!response.ok) {
-      const error = await response.text()
-      console.error('Claude API error:', error)
-      throw new Error('Failed to get AI response')
+      const errorText = await response.text()
+      console.error('Claude API error:', response.status, errorText)
+
+      // Check for specific error types
+      if (response.status === 401) {
+        throw new Error(`Authentication failed: Invalid API key`)
+      } else if (response.status === 429) {
+        throw new Error(`Rate limit exceeded`)
+      } else {
+        throw new Error(`Claude API error (${response.status}): ${errorText}`)
+      }
     }
 
     const data = await response.json()
@@ -85,12 +94,26 @@ export async function POST(request: NextRequest) {
     }, 200, request)
 
   } catch (error: any) {
-    console.error('AI chat error:', error)
+    console.error('AI chat error:', error.message || error)
+
+    // Different fallback messages based on error type
+    let fallbackMessage = "I'm having trouble connecting right now. Let me help you understand your Facebook Ads issues. What's your biggest challenge?";
+    let debugInfo = error.message || 'Unknown error';
+
+    if (error.message?.includes('Authentication failed')) {
+      fallbackMessage = "There's a configuration issue with our AI assistant. But I can still help! Tell me about your Facebook Ads challenges.";
+      debugInfo = 'API key authentication failed';
+    } else if (error.message?.includes('Rate limit')) {
+      fallbackMessage = "We're experiencing high demand right now. But let's continue - what specific Facebook Ads issues are you facing?";
+      debugInfo = 'Rate limit exceeded';
+    }
+
     // Return a helpful fallback response
     return createCorsResponse({
-      response: "I'm having trouble connecting right now, but here's what I can tell you: Without a Facebook Pixel, you're missing out on 80% of your ad optimization potential. Let's fix that together. What's your biggest challenge with Facebook Ads?",
+      response: fallbackMessage,
       error: true,
-      isFallback: true // Mark as fallback
+      isFallback: true, // Mark as fallback
+      debugInfo: debugInfo // Include debug info for troubleshooting
     }, 500, request)
   }
 }

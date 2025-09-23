@@ -337,4 +337,4 @@ This isn't just a landing page - it's a complete business system that practices 
 
 ---
 
-**Remember**: The assessment tool completions can be used as conversion events for YOUR Facebook pixel seasoning. You're literally using the strategy you're teaching! 🚀
+**Remember**: The assessment tool completions can be used as conversion events for YOUR Facebook pixel seasoning. You're literally using the strategy you're teaching! 🚀# Trigger deployment Tue 23 Sep 2025 15:36:11 CEST

@@ -1,5 +1,6 @@
 // Test Claude API directly
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || 'your-key-here';
+// Replace with your actual API key to test
+const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || 'sk-ant-PASTE_YOUR_KEY_HERE';
 
 async function testClaude() {
   console.log('Testing with key:', CLAUDE_API_KEY ? CLAUDE_API_KEY.substring(0, 20) + '...' : 'NO KEY');

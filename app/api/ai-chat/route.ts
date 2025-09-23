@@ -3,7 +3,7 @@ import { handleCors, createCorsResponse } from '../../lib/cors'
 import { FACEBOOK_ADS_KNOWLEDGE, CONVERSATION_STARTERS, OBJECTION_HANDLERS } from '@/lib/facebook-ads-knowledge'
 
 // Anthropic Claude API configuration
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY
+const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY?.trim() // Trim any whitespace
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
 
 export async function OPTIONS(request: NextRequest) {
@@ -71,14 +71,24 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       const errorText = await response.text()
       console.error('Claude API error:', response.status, errorText)
+      console.error('API Key used (first 20 chars):', CLAUDE_API_KEY?.substring(0, 20))
+
+      // Parse error for better debugging
+      let errorDetail = errorText;
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorDetail = errorJson.error?.message || errorJson.message || errorText;
+      } catch (e) {
+        // Keep original error text if not JSON
+      }
 
       // Check for specific error types
       if (response.status === 401) {
-        throw new Error(`Authentication failed: Invalid API key`)
+        throw new Error(`Authentication failed: ${errorDetail}`)
       } else if (response.status === 429) {
         throw new Error(`Rate limit exceeded`)
       } else {
-        throw new Error(`Claude API error (${response.status}): ${errorText}`)
+        throw new Error(`Claude API error (${response.status}): ${errorDetail}`)
       }
     }
 

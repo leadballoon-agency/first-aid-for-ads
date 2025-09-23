@@ -12,12 +12,23 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { 
-      messages, 
-      siteAnalysis, 
+    const {
+      messages,
+      siteAnalysis,
       qualificationData,
-      isFirstMessage = false 
+      isFirstMessage = false,
+      testApiKey = false  // Special flag for testing
     } = await request.json()
+
+    // Special test mode to check API key
+    if (testApiKey) {
+      return createCorsResponse({
+        hasKey: !!CLAUDE_API_KEY,
+        keyLength: CLAUDE_API_KEY?.length || 0,
+        startsWithSkAnt: CLAUDE_API_KEY?.startsWith('sk-ant-') || false,
+        first10Chars: CLAUDE_API_KEY ? CLAUDE_API_KEY.substring(0, 10) + '...' : 'NO KEY'
+      }, 200, request)
+    }
 
     // Check if we have Claude API key
     if (!CLAUDE_API_KEY) {

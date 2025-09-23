@@ -31,6 +31,9 @@ export async function POST(request: NextRequest) {
       }, 200, request)
     }
 
+    // Log API key presence (first few chars only for security)
+    console.log('API Key present:', CLAUDE_API_KEY ? `${CLAUDE_API_KEY.substring(0, 10)}...` : 'NO KEY')
+
     // Build the system prompt with all context
     const systemPrompt = buildSystemPrompt(siteAnalysis, qualificationData)
     
@@ -53,7 +56,7 @@ export async function POST(request: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key': CLAUDE_API_KEY,
+        'x-api-key': CLAUDE_API_KEY,  // Must be lowercase!
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({

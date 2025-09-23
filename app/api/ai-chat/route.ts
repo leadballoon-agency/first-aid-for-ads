@@ -39,13 +39,14 @@ export async function POST(request: NextRequest) {
 
       // In fallback mode, show calendar after 6+ exchanges and clear problem identification
       const messageCount = messages?.length || 0
-      if (qualified && messageCount >= 6) {
-        qualified.readyToBook = true
+      const qualifiedWithBooking = {
+        ...qualified,
+        readyToBook: messageCount >= 6
       }
 
       return createCorsResponse({
         response: fallbackResponse,
-        qualified,
+        qualified: qualifiedWithBooking,
         isFallback: true, // Mark as fallback response
         debugInfo: 'No API key configured'
       }, 200, request)
@@ -124,13 +125,14 @@ export async function POST(request: NextRequest) {
     const cleanResponse = aiResponse.replace('[READY_TO_BOOK]', '').trim()
 
     // Add readyToBook flag to qualification
-    if (qualified) {
-      qualified.readyToBook = readyToBook
+    const qualifiedWithBooking = {
+      ...qualified,
+      readyToBook: readyToBook
     }
 
     return createCorsResponse({
       response: cleanResponse,
-      qualified,
+      qualified: qualifiedWithBooking,
       trialEligible: qualified.trialEligible,
       reason: qualified.reason,
       offerLandingPage: qualified.offerLandingPage

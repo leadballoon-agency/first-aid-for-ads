@@ -195,9 +195,12 @@ export default function AIChatInterface({
 
       setMessages(prev => [...prev, aiMessage])
 
-      // Only check qualification after at least 3 exchanges (6 messages total)
-      // This ensures a meaningful conversation before showing the calendar
-      if (messageCount >= 2 && data.qualified && data.qualified.trialEligible) {
+      // Only check qualification after meaningful conversation (at least 8-10 messages)
+      // This ensures the AI has time to build value and understand their needs
+      if (messageCount >= 8 && data.qualified && data.qualified.trialEligible) {
+        setQualified(data.qualified)
+      } else if (messageCount >= 6 && data.qualified && data.qualified.offerLandingPage) {
+        // Show landing page offer for those without pixel after moderate conversation
         setQualified(data.qualified)
       }
     } catch (error) {
@@ -246,7 +249,7 @@ export default function AIChatInterface({
           </div>
 
           {/* Only show qualification status after meaningful conversation */}
-          {messageCount >= 3 && qualified?.trialEligible && (
+          {messageCount >= 8 && qualified?.trialEligible && (
             <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
               <p className="text-emerald-400 text-sm font-medium">
                 ✅ You qualify for Kerry's 7-day risk-free trial!
@@ -339,7 +342,7 @@ export default function AIChatInterface({
 
       {/* Book a Call CTA with Kerry's Calendar */}
       {/* Only show after meaningful conversation (at least 3 user messages) */}
-      {messageCount >= 3 && qualified?.trialEligible && (
+      {messageCount >= 8 && qualified?.trialEligible && (
         <div className="mt-8">
           {/* Hero Section */}
           <div className="relative overflow-hidden rounded-t-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-cyan-500 p-8 text-center">
@@ -394,7 +397,7 @@ export default function AIChatInterface({
       )}
 
       {/* Emergency Pixel Fix CTA for those without pixel */}
-      {messageCount >= 3 && qualified?.offerLandingPage && (
+      {messageCount >= 6 && qualified?.offerLandingPage && (
         <div className="mt-8">
           {/* Hero Section */}
           <div className="relative overflow-hidden rounded-t-2xl bg-gradient-to-br from-red-600 via-orange-500 to-amber-500 p-8 text-center">
@@ -470,7 +473,7 @@ export default function AIChatInterface({
       )}
 
       {/* Mark's Technical Triage CTA - for setup/tracking issues */}
-      {messageCount >= 3 && qualified?.offerTriage && (
+      {messageCount >= 6 && qualified?.offerTriage && (
         <div className="mt-8">
           {/* Hero Section */}
           <div className="relative overflow-hidden rounded-t-2xl bg-gradient-to-br from-blue-600 via-indigo-500 to-purple-500 p-8 text-center">
@@ -541,7 +544,7 @@ export default function AIChatInterface({
       )}
 
       {/* Competitive Intelligence CTA - for beating competitors */}
-      {messageCount >= 2 && qualified?.offerCompetitive && (
+      {messageCount >= 5 && qualified?.offerCompetitive && (
         <div className="mt-8">
           {/* Hero Section */}
           <div className="relative overflow-hidden rounded-t-2xl bg-gradient-to-br from-yellow-600 via-orange-500 to-red-500 p-8 text-center">
@@ -620,7 +623,7 @@ export default function AIChatInterface({
 
       {/* Alternative CTA for non-qualified leads */}
       {/* Show after conversation develops but they don't qualify for trial */}
-      {messageCount >= 3 && !qualified?.trialEligible && !qualified?.offerLandingPage && !qualified?.offerTriage && !qualified?.offerCompetitive && (
+      {messageCount >= 7 && !qualified?.trialEligible && !qualified?.offerLandingPage && !qualified?.offerTriage && !qualified?.offerCompetitive && (
         <div className="mt-8">
           {/* Hero Section */}
           <div className="relative overflow-hidden rounded-t-2xl bg-gradient-to-br from-slate-700 via-slate-600 to-slate-700 p-8 text-center">
